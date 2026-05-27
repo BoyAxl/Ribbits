@@ -21,6 +21,7 @@ public class RibbitTradeWithPlayerGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
+        // TODO(post-1.0): Revisit whether trading Ribbits should stop trading and panic when hurt.
         return this.canTradeWithPlayer();
     }
 
