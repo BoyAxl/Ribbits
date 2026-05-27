@@ -32,13 +32,12 @@ public abstract class FixJukeboxCrashMixin extends BlockEntity {
         }
     }
 
-    // NeoForge has split the setTheItem method into itemChanged and setTheItem. In NeoForge, we need to inject into itemChanged.
     @Inject(method = "itemChanged",
             at = @At(value = "INVOKE",
                     target = "Lnet/minecraft/world/level/Level;registryAccess()Lnet/minecraft/core/RegistryAccess;"),
             cancellable = true,
             require = 0)
-    public void yungsapi_checkIfLevelNullForNeo(CallbackInfo ci) {
+    public void yungsapi_checkIfLevelNullWhenItemChanges(CallbackInfo ci) {
         if (this.level == null) {
             ci.cancel();
         }
