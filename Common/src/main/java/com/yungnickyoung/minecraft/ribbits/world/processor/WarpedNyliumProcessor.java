@@ -2,7 +2,6 @@ package com.yungnickyoung.minecraft.ribbits.world.processor;
 
 import com.mojang.serialization.MapCodec;
 import com.yungnickyoung.minecraft.ribbits.module.StructureProcessorTypeModule;
-import net.minecraft.MethodsReturnNonnullByDefault;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.world.level.ChunkPos;
@@ -15,14 +14,10 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureProc
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.level.material.Fluids;
 
-import javax.annotation.ParametersAreNonnullByDefault;
-
 /**
  * Replaces warped nylium with grass block if no water present.
  * If water is present, then it remains as water.
  */
-@ParametersAreNonnullByDefault
-@MethodsReturnNonnullByDefault
 public class WarpedNyliumProcessor extends StructureProcessor {
     public static final WarpedNyliumProcessor INSTANCE = new WarpedNyliumProcessor();
     public static final MapCodec<WarpedNyliumProcessor> CODEC = MapCodec.unit(() -> INSTANCE);
@@ -35,7 +30,7 @@ public class WarpedNyliumProcessor extends StructureProcessor {
                                                              StructureTemplate.StructureBlockInfo blockInfoGlobal,
                                                              StructurePlaceSettings structurePlacementData) {
         if (blockInfoGlobal.state().is(Blocks.WARPED_NYLIUM)) {
-            if (levelReader instanceof WorldGenRegion worldGenRegion && !worldGenRegion.getCenter().equals(new ChunkPos(blockInfoGlobal.pos()))) {
+            if (levelReader instanceof WorldGenRegion worldGenRegion && !worldGenRegion.getCenter().equals(ChunkPos.containing(blockInfoGlobal.pos()))) {
                 return blockInfoGlobal;
             }
 
@@ -56,7 +51,12 @@ public class WarpedNyliumProcessor extends StructureProcessor {
         return blockInfoGlobal;
     }
 
+    @Override
     protected StructureProcessorType<?> getType() {
         return StructureProcessorTypeModule.WARPED_NYLIUM_PROCESSOR;
+    }
+
+    public static MapCodec<WarpedNyliumProcessor> codec() {
+        return CODEC;
     }
 }

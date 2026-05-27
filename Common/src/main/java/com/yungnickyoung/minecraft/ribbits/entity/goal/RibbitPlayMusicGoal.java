@@ -3,7 +3,7 @@ package com.yungnickyoung.minecraft.ribbits.entity.goal;
 import com.yungnickyoung.minecraft.ribbits.data.RibbitInstrument;
 import com.yungnickyoung.minecraft.ribbits.entity.RibbitEntity;
 import com.yungnickyoung.minecraft.ribbits.module.RibbitInstrumentModule;
-import com.yungnickyoung.minecraft.ribbits.services.Services;
+import com.yungnickyoung.minecraft.ribbits.network.ServerNetworkHandler;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntitySelector;
@@ -40,7 +40,7 @@ public class RibbitPlayMusicGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        if (this.ribbit.level().isNight()) {
+        if (this.ribbit.level().isDarkOutside()) {
             return false;
         }
 
@@ -174,7 +174,7 @@ public class RibbitPlayMusicGoal extends Goal {
             this.ribbit.setPlayingInstrument(true);
             this.ribbit.setTicksPlayingMusic(0);
 
-            Services.PLATFORM.onRibbitStartMusicGoal((ServerLevel) this.ribbit.level(), this.ribbit, masterRibbit);
+            ServerNetworkHandler.onRibbitStartMusicGoal((ServerLevel) this.ribbit.level(), this.ribbit, masterRibbit);
 
             // If this ribbit is not the master ribbit, add it to the master ribbit's list of ribbits playing music
             masterRibbit.addRibbitToPlayingMusic(this.ribbit);
@@ -202,7 +202,7 @@ public class RibbitPlayMusicGoal extends Goal {
                     if (!playersHearingMusic.contains(player)) {
 //                    RibbitsCommon.LOGGER.info("Starting music for " + player.getName().getString());
                         playersHearingMusic.add(player);
-                        Services.PLATFORM.onPlayerEnterBandRange((ServerPlayer) player, (ServerLevel) this.ribbit.level(), this.ribbit);
+                        ServerNetworkHandler.onPlayerEnterBandRange((ServerPlayer) player, (ServerLevel) this.ribbit.level(), this.ribbit);
                     }
                 }
 
@@ -210,7 +210,7 @@ public class RibbitPlayMusicGoal extends Goal {
                 playersHearingMusic.removeIf(player -> {
                     if (player.isRemoved() || !playersInRange.contains(player)) {
 //                    RibbitsCommon.LOGGER.info("Stopping music for " + player.getName().getString());
-                        Services.PLATFORM.onPlayerExitBandRange((ServerPlayer) player, (ServerLevel) this.ribbit.level(), this.ribbit);
+                        ServerNetworkHandler.onPlayerExitBandRange((ServerPlayer) player, (ServerLevel) this.ribbit.level(), this.ribbit);
                         return true;
                     }
                     return false;

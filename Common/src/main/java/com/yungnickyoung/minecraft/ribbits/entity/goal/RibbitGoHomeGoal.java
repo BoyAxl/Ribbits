@@ -31,7 +31,7 @@ public class RibbitGoHomeGoal extends Goal {
             return false;
         }
 
-        return this.ribbit.level().isNight();
+        return this.ribbit.level().isDarkOutside();
     }
 
     @Override

@@ -3,7 +3,6 @@ package com.yungnickyoung.minecraft.ribbits.world.processor;
 import com.mojang.serialization.MapCodec;
 import com.yungnickyoung.minecraft.ribbits.module.BlockModule;
 import com.yungnickyoung.minecraft.ribbits.module.StructureProcessorTypeModule;
-import net.minecraft.MethodsReturnNonnullByDefault;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.util.RandomSource;
@@ -16,14 +15,10 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureProc
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureProcessorType;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 
-import javax.annotation.ParametersAreNonnullByDefault;
-
 /**
  * Replaces lapis blocks with water and seagrass.
  * Ensures solid block under the water.
  */
-@ParametersAreNonnullByDefault
-@MethodsReturnNonnullByDefault
 public class LapisBlockProcessor extends StructureProcessor {
     public static final LapisBlockProcessor INSTANCE = new LapisBlockProcessor();
     public static final MapCodec<LapisBlockProcessor> CODEC = MapCodec.unit(() -> INSTANCE);
@@ -36,7 +31,7 @@ public class LapisBlockProcessor extends StructureProcessor {
                                                              StructureTemplate.StructureBlockInfo blockInfoGlobal,
                                                              StructurePlaceSettings structurePlacementData) {
         if (blockInfoGlobal.state().is(Blocks.LAPIS_BLOCK)) {
-            if (levelReader instanceof WorldGenRegion worldGenRegion && !worldGenRegion.getCenter().equals(new ChunkPos(blockInfoGlobal.pos()))) {
+            if (levelReader instanceof WorldGenRegion worldGenRegion && !worldGenRegion.getCenter().equals(ChunkPos.containing(blockInfoGlobal.pos()))) {
                 return blockInfoGlobal;
             }
 
@@ -47,19 +42,24 @@ public class LapisBlockProcessor extends StructureProcessor {
                     : new StructureTemplate.StructureBlockInfo(blockInfoGlobal.pos(), Blocks.SEAGRASS.defaultBlockState(), null);
 
             if (random.nextFloat() < 0.1f) {
-                levelReader.getChunk(blockInfoGlobal.pos().above()).setBlockState(blockInfoGlobal.pos().above(), BlockModule.GIANT_LILYPAD.get().defaultBlockState(), false);
+                levelReader.getChunk(blockInfoGlobal.pos().above()).setBlockState(blockInfoGlobal.pos().above(), BlockModule.GIANT_LILYPAD.get().defaultBlockState());
             }
 
             // Set block below to dirt if not solid
             BlockState blockStateBelow = levelReader.getBlockState(blockInfoGlobal.pos().below());
-            if (!blockStateBelow.isSolidRender(levelReader, blockInfoGlobal.pos().below())) {
-                levelReader.getChunk(blockInfoGlobal.pos().below()).setBlockState(blockInfoGlobal.pos().below(), Blocks.DIRT.defaultBlockState(), false);
+            if (!blockStateBelow.isSolidRender()) {
+                levelReader.getChunk(blockInfoGlobal.pos().below()).setBlockState(blockInfoGlobal.pos().below(), Blocks.DIRT.defaultBlockState());
             }
         }
         return blockInfoGlobal;
     }
 
+    @Override
     protected StructureProcessorType<?> getType() {
         return StructureProcessorTypeModule.LAPIS_BLOCK_PROCESSOR;
+    }
+
+    public static MapCodec<LapisBlockProcessor> codec() {
+        return CODEC;
     }
 }

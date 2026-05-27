@@ -2,14 +2,14 @@ package com.yungnickyoung.minecraft.ribbits.block;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
-import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.LevelReader;
+import net.minecraft.world.level.ScheduledTickAccess;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.SimpleWaterloggedBlock;
-import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -21,8 +21,8 @@ import net.minecraft.world.level.pathfinder.PathComputationType;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import org.jetbrains.annotations.Nullable;
 
-import javax.annotation.Nullable;
 
 public class SwampLanternBlock extends Block implements SimpleWaterloggedBlock {
     public static final BooleanProperty HANGING = BlockStateProperties.HANGING;
@@ -37,7 +37,7 @@ public class SwampLanternBlock extends Block implements SimpleWaterloggedBlock {
             Block.box(7.0, 9.0, 7.0, 9.0, 13.0, 9.0),
             Block.box(5.0, 3.0, 5.0, 11.0, 9.0, 11.0));
 
-    public SwampLanternBlock(BlockBehaviour.Properties $$0) {
+    public SwampLanternBlock(Properties $$0) {
         super($$0);
         this.registerDefaultState(this.stateDefinition.any()
                 .setValue(HANGING, false)
@@ -45,6 +45,7 @@ public class SwampLanternBlock extends Block implements SimpleWaterloggedBlock {
     }
 
     @Nullable
+    @Override
     public BlockState getStateForPlacement(BlockPlaceContext placeContext) {
         FluidState fluidState = placeContext.getLevel().getFluidState(placeContext.getClickedPos());
         for (Direction direction : placeContext.getNearestLookingDirections()) {
@@ -59,17 +60,40 @@ public class SwampLanternBlock extends Block implements SimpleWaterloggedBlock {
         return null;
     }
 
+    @Override
     public VoxelShape getShape(BlockState blockState, BlockGetter blockGetter, BlockPos blockPos, CollisionContext collisionContext) {
         return blockState.getValue(HANGING) ? HANGING_AABB : AABB;
     }
 
+    @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> stateBuilder) {
         stateBuilder.add(HANGING, WATERLOGGED);
     }
 
+    @Override
     public boolean canSurvive(BlockState blockState, LevelReader levelReader, BlockPos blockPos) {
         Direction $$3 = getConnectedDirection(blockState).getOpposite();
         return Block.canSupportCenter(levelReader, blockPos.relative($$3), $$3.getOpposite());
+    }
+
+    @Override
+    protected BlockState updateShape(BlockState blockState, LevelReader levelReader, ScheduledTickAccess scheduledTickAccess, BlockPos blockPos, Direction direction, BlockPos blockPos2, BlockState blockState2, RandomSource randomSource) {
+        if (blockState.getValue(WATERLOGGED)) {
+            scheduledTickAccess.scheduleTick(blockPos, Fluids.WATER, Fluids.WATER.getTickDelay(levelReader));
+        }
+
+        return getConnectedDirection(blockState).getOpposite() == direction && !blockState.canSurvive(levelReader, blockPos)
+                ? Blocks.AIR.defaultBlockState()
+                : super.updateShape(blockState, levelReader, scheduledTickAccess, blockPos, direction, blockPos2, blockState2, randomSource);
+    }
+
+    @Override
+    public FluidState getFluidState(BlockState blockState) {
+        return blockState.getValue(WATERLOGGED) ? Fluids.WATER.getSource(false) : super.getFluidState(blockState);
+    }
+
+    public boolean isPathfindable(BlockState blockState, BlockGetter blockGetter, BlockPos blockPos, PathComputationType pathComputationType) {
+        return false;
     }
 
     protected static Direction getConnectedDirection(BlockState blockState) {
@@ -80,21 +104,4 @@ public class SwampLanternBlock extends Block implements SimpleWaterloggedBlock {
         return PushReaction.DESTROY;
     }
 
-    public BlockState updateShape(BlockState blockState, Direction direction, BlockState neighborBlockState, LevelAccessor levelAccessor, BlockPos blockPos, BlockPos blockPos1) {
-        if (blockState.getValue(WATERLOGGED)) {
-            levelAccessor.scheduleTick(blockPos, Fluids.WATER, Fluids.WATER.getTickDelay(levelAccessor));
-        }
-
-        return getConnectedDirection(blockState).getOpposite() == direction && !blockState.canSurvive(levelAccessor, blockPos)
-                ? Blocks.AIR.defaultBlockState()
-                : super.updateShape(blockState, direction, neighborBlockState, levelAccessor, blockPos, blockPos1);
-    }
-
-    public FluidState getFluidState(BlockState blockState) {
-        return blockState.getValue(WATERLOGGED) ? Fluids.WATER.getSource(false) : super.getFluidState(blockState);
-    }
-
-    public boolean isPathfindable(BlockState blockState, BlockGetter blockGetter, BlockPos blockPos, PathComputationType pathComputationType) {
-        return false;
-    }
 }

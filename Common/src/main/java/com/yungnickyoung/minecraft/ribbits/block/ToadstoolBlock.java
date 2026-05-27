@@ -16,8 +16,9 @@ public class ToadstoolBlock extends SwampPlantBlock {
         super(properties, PlacedFeatureModule.TOADSTOOL_PATCH);
     }
 
+    @Override
     public VoxelShape getShape(BlockState blockState, BlockGetter blockGetter, BlockPos blockPos, CollisionContext collisionContext) {
-        Vec3 offset = blockState.getOffset(blockGetter, blockPos);
+        Vec3 offset = blockState.getOffset(blockPos);
         return SHAPE.move(offset.x, offset.y, offset.z);
     }
 }

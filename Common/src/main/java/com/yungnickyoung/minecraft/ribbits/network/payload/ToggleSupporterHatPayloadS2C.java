@@ -18,8 +18,8 @@ import java.util.UUID;
  * @param enabled    Whether to enable or disable the supporter hat
  */
 public record ToggleSupporterHatPayloadS2C(UUID playerUUID, boolean enabled) implements CustomPacketPayload {
-    public static final CustomPacketPayload.Type<ToggleSupporterHatPayloadS2C> TYPE =
-            new CustomPacketPayload.Type<>(RibbitsCommon.id("toggle_supporter_hat_s2c"));
+    public static final Type<ToggleSupporterHatPayloadS2C> TYPE =
+            new Type<>(RibbitsCommon.id("toggle_supporter_hat_s2c"));
 
     public static final StreamCodec<FriendlyByteBuf, ToggleSupporterHatPayloadS2C> STREAM_CODEC = StreamCodec.composite(
             UUIDUtil.STREAM_CODEC,

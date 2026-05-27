@@ -1,25 +1,20 @@
 package com.yungnickyoung.minecraft.ribbits.client.model;
 
-import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.yungnickyoung.minecraft.ribbits.RibbitsCommon;
 import net.minecraft.client.model.EntityModel;
 import net.minecraft.client.model.geom.ModelLayerLocation;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.geom.PartPose;
-import net.minecraft.client.model.geom.builders.CubeDeformation;
-import net.minecraft.client.model.geom.builders.CubeListBuilder;
-import net.minecraft.client.model.geom.builders.LayerDefinition;
-import net.minecraft.client.model.geom.builders.MeshDefinition;
-import net.minecraft.client.model.geom.builders.PartDefinition;
-import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.model.geom.builders.*;
+import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 
-public class SupporterHatModel extends EntityModel<AbstractClientPlayer> {
+public class SupporterHatModel extends EntityModel<AvatarRenderState> {
     public static final ModelLayerLocation LAYER_LOCATION = new ModelLayerLocation(RibbitsCommon.id("supporter_hat"), "main");
 
     public final ModelPart head;
 
     public SupporterHatModel(ModelPart root) {
+        super(root);
         this.head = root.getChild("main");
     }
 
@@ -43,12 +38,6 @@ public class SupporterHatModel extends EntityModel<AbstractClientPlayer> {
     }
 
     @Override
-    public void setupAnim(AbstractClientPlayer entity, float limbAngle, float limbDistance, float animationProgress, float headYaw, float headPitch) {
-
-    }
-
-    @Override
-    public void renderToBuffer(PoseStack poseStack, VertexConsumer vertexConsumer, int packedLight, int packedOverlay, int color) {
-        head.render(poseStack, vertexConsumer, packedLight, packedOverlay, color);
+    public void setupAnim(AvatarRenderState state) {
     }
 }

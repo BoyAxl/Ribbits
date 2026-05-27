@@ -20,12 +20,15 @@ import java.util.OptionalInt;
 @Mixin(Channel.class)
 public class ChannelMixin implements IChannelDuck {
 
-    @Shadow @Final private int source;
+    @Shadow
+    @Final
+    private int source;
 
     /**
      * Attaches a buffer to the current source using a byte offset grabbed from another existing source.
-     * @param instance the sound instance about to be started
-     * @param soundBuffer the buffer that the sound should be played on
+     *
+     * @param instance            the sound instance about to be started
+     * @param soundBuffer         the buffer that the sound should be played on
      * @param existingSoundSource the source id of the source that the offset should be fetched from
      */
     @Override
@@ -58,8 +61,9 @@ public class ChannelMixin implements IChannelDuck {
     /**
      * Attaches a buffer to the current source using a sample offset that is matched as closely as possible to an
      * existing source by the number of ticks the other sound has been playing.
-     * @param instance the sound instance about to be started
-     * @param soundBuffer the buffer that the sound should be played on
+     *
+     * @param instance      the sound instance about to be started
+     * @param soundBuffer   the buffer that the sound should be played on
      * @param ticksToOffset the number of ticks the already playing sound has been active
      */
     @Override

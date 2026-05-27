@@ -5,7 +5,6 @@ import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yungnickyoung.minecraft.ribbits.module.StructureProcessorTypeModule;
 import com.yungnickyoung.minecraft.yungsapi.api.world.randomize.BlockStateRandomizer;
-import net.minecraft.MethodsReturnNonnullByDefault;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.WorldGenRegion;
@@ -20,10 +19,7 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureProc
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureProcessorType;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 
-import javax.annotation.ParametersAreNonnullByDefault;
 
-@ParametersAreNonnullByDefault
-@MethodsReturnNonnullByDefault
 public class PillarProcessor extends StructureProcessor {
     public static final MapCodec<PillarProcessor> CODEC = RecordCodecBuilder.mapCodec(instance -> instance
             .group(
@@ -56,7 +52,8 @@ public class PillarProcessor extends StructureProcessor {
                                                              StructureTemplate.StructureBlockInfo blockInfoGlobal,
                                                              StructurePlaceSettings structurePlacementData) {
         if (blockInfoGlobal.state().is(this.targetBlock.getBlock())) {
-            if (levelReader instanceof WorldGenRegion worldGenRegion && !worldGenRegion.getCenter().equals(new ChunkPos(blockInfoGlobal.pos()))) {
+            if (levelReader instanceof WorldGenRegion worldGenRegion
+                    && !worldGenRegion.getCenter().equals(ChunkPos.containing(blockInfoGlobal.pos()))) {
                 return blockInfoGlobal;
             }
 
@@ -65,17 +62,18 @@ public class PillarProcessor extends StructureProcessor {
             BlockState currBlockState = levelReader.getBlockState(mutable);
             RandomSource random = structurePlacementData.getRandom(blockInfoGlobal.pos());
 
-            while (mutable.getY() > levelReader.getMinBuildHeight()
-                    && mutable.getY() < levelReader.getMaxBuildHeight()
+            int minY = levelReader.getMinY();
+            int maxY = levelReader.getMaxY();
+
+            while (mutable.getY() > minY
+                    && mutable.getY() <= maxY
                     && (currBlockState.isAir() || !levelReader.getFluidState(mutable).isEmpty())) {
                 BlockState blockState = this.pillarStates.get(random);
                 if (currBlockState.is(Blocks.WATER) && blockState.hasProperty(BlockStateProperties.WATERLOGGED)) {
                     blockState = blockState.setValue(BlockStateProperties.WATERLOGGED, true);
                 }
 
-                levelReader.getChunk(mutable).setBlockState(mutable, blockState, false);
-
-                // Update to next position
+                levelReader.getChunk(mutable).setBlockState(mutable, blockState);
                 mutable.move(Direction.DOWN);
                 currBlockState = levelReader.getBlockState(mutable);
             }
@@ -83,7 +81,13 @@ public class PillarProcessor extends StructureProcessor {
         return blockInfoGlobal;
     }
 
+
+    @Override
     protected StructureProcessorType<?> getType() {
         return StructureProcessorTypeModule.PILLAR_PROCESSOR;
+    }
+
+    public static MapCodec<PillarProcessor> codec() {
+        return CODEC;
     }
 }

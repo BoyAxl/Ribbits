@@ -1,10 +1,8 @@
 package com.yungnickyoung.minecraft.ribbits.util;
 
-import io.netty.buffer.ByteBuf;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -12,19 +10,19 @@ import java.util.List;
 import java.util.UUID;
 
 public class BufferUtils {
-//    StreamCodec<FriendlyByteBuf, UUID> UUID_STREAM_CODEC = StreamCodec.composite(
+    //    StreamCodec<FriendlyByteBuf, UUID> UUID_STREAM_CODEC = StreamCodec.composite(
 //            ByteBufCodecs.
 //            (buf, uuid) -> buf.writeUUID(uuid)
 //    );
-StreamCodec<FriendlyByteBuf, UUID> UUID = new StreamCodec<>() {
-    public @NotNull UUID decode(FriendlyByteBuf buf) {
-        return buf.readUUID();
-    }
+    StreamCodec<FriendlyByteBuf, UUID> UUID = new StreamCodec<>() {
+        public @NotNull UUID decode(FriendlyByteBuf buf) {
+            return buf.readUUID();
+        }
 
-    public void encode(FriendlyByteBuf buf, @NotNull UUID uuid) {
-        buf.writeUUID(uuid);
-    }
-};
+        public void encode(FriendlyByteBuf buf, @NotNull UUID uuid) {
+            buf.writeUUID(uuid);
+        }
+    };
 
     public static List<Integer> readIntList(FriendlyByteBuf buf) {
         int size = buf.readInt();
@@ -58,19 +56,19 @@ StreamCodec<FriendlyByteBuf, UUID> UUID = new StreamCodec<>() {
         }
     }
 
-    public static List<ResourceLocation> readResourceLocationList(FriendlyByteBuf buf) {
+    public static List<Identifier> readIdentifierList(FriendlyByteBuf buf) {
         int size = buf.readInt();
-        List<ResourceLocation> list = new ArrayList<>(size);
+        List<Identifier> list = new ArrayList<>(size);
         for (int i = 0; i < size; i++) {
-            list.add(buf.readResourceLocation());
+            list.add(buf.readIdentifier());
         }
         return list;
     }
 
-    public static void writeResourceLocationList(List<ResourceLocation> list, FriendlyByteBuf buf) {
+    public static void writeIdentifierList(List<Identifier> list, FriendlyByteBuf buf) {
         buf.writeInt(list.size());
-        for (ResourceLocation resourceLocation : list) {
-            buf.writeResourceLocation(resourceLocation);
+        for (Identifier resourceLocation : list) {
+            buf.writeIdentifier(resourceLocation);
         }
     }
 }

@@ -63,14 +63,14 @@ public class RibbitFishGoal extends Goal {
     @Override
     public boolean canUse() {
 
-        if (this.ribbit.level().isNight()) {
+        if (this.ribbit.level().isDarkOutside()) {
             return false;
         }
 
         Optional<BlockPos> waterPos = BlockPos.findClosestMatch(this.ribbit.getOnPos(), (int) range, 5, blockpos -> this.ribbit.level().getFluidState(blockpos).is(FluidTags.WATER) && this.ribbit.level().getBlockState(blockpos.above()).is(Blocks.AIR));
-        
+
         this.dryPos = null;
-                
+
         if (waterPos.isPresent()) {
             this.waterPos = waterPos.get();
 
@@ -94,7 +94,7 @@ public class RibbitFishGoal extends Goal {
             return false;
         }
 
-        return this.ribbit.level().isDay();
+        return this.ribbit.level().isBrightOutside();
     }
 
     @Override

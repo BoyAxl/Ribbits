@@ -2,7 +2,7 @@ package com.yungnickyoung.minecraft.ribbits.world.processor;
 
 import com.mojang.serialization.MapCodec;
 import com.yungnickyoung.minecraft.ribbits.module.StructureProcessorTypeModule;
-import net.minecraft.Util;
+import net.minecraft.util.Util;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -15,12 +15,10 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureProc
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import org.jetbrains.annotations.NotNull;
 
-import javax.annotation.ParametersAreNonnullByDefault;
 
 /**
  * Fills brewing stands with ingredients and potions.
  */
-@ParametersAreNonnullByDefault
 public class BrewingStandProcessor extends StructureProcessor {
     public static final BrewingStandProcessor INSTANCE = new BrewingStandProcessor();
     public static final MapCodec<BrewingStandProcessor> CODEC = MapCodec.unit(() -> INSTANCE);
@@ -35,24 +33,43 @@ public class BrewingStandProcessor extends StructureProcessor {
         if (blockInfoGlobal.state().getBlock() == Blocks.BREWING_STAND) {
             RandomSource randomSource = structurePlacementData.getRandom(blockInfoGlobal.pos());
             CompoundTag tag = blockInfoGlobal.nbt();
-            ListTag itemsListTag = tag.getList("Items", 10);
+
+            ListTag itemsListTag = tag.getList("Items")
+                    .orElseGet(ListTag::new);
+
             populateItemsList(itemsListTag, randomSource);
-            blockInfoGlobal = new StructureTemplate.StructureBlockInfo(blockInfoGlobal.pos(), blockInfoGlobal.state(), tag);
+
+            tag.put("Items", itemsListTag);
+
+            blockInfoGlobal = new StructureTemplate.StructureBlockInfo(
+                    blockInfoGlobal.pos(),
+                    blockInfoGlobal.state(),
+                    tag
+            );
         }
         return blockInfoGlobal;
     }
 
+
+    @Override
     protected @NotNull StructureProcessorType<?> getType() {
         return StructureProcessorTypeModule.BREWING_STAND_PROCESSOR;
+    }
+
+    public static MapCodec<BrewingStandProcessor> codec() {
+        return CODEC;
     }
 
     private void populateItemsList(ListTag itemsListTag, RandomSource randomSource) {
         int n = randomSource.nextInt(5);
         switch (n) {
             case 1 -> addBrewingRecipe(itemsListTag, "minecraft:sugar", "minecraft:swiftness", 4, 0.5f, randomSource);
-            case 2 -> addBrewingRecipe(itemsListTag, "minecraft:pufferfish", "minecraft:water_breathing", 3, 0.5f, randomSource);
-            case 3 -> addBrewingRecipe(itemsListTag, "minecraft:phantom_membrane", "minecraft:slow_falling", 1, 0.4f, randomSource);
-            case 4 -> addBrewingRecipe(itemsListTag, "minecraft:rabbit_foot", "minecraft:leaping", 1, 0.25f, randomSource);
+            case 2 ->
+                    addBrewingRecipe(itemsListTag, "minecraft:pufferfish", "minecraft:water_breathing", 3, 0.5f, randomSource);
+            case 3 ->
+                    addBrewingRecipe(itemsListTag, "minecraft:phantom_membrane", "minecraft:slow_falling", 1, 0.4f, randomSource);
+            case 4 ->
+                    addBrewingRecipe(itemsListTag, "minecraft:rabbit_foot", "minecraft:leaping", 1, 0.25f, randomSource);
         }
     }
 

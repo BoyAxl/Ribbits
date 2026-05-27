@@ -21,27 +21,28 @@
   "environment": "*",
   "entrypoints": {
     "main": [
-      "com.yungnickyoung.minecraft.ribbits.RibbitsFabric"
+      "com.yungnickyoung.minecraft.ribbits.fabric.RibbitsFabric"
     ],
     "client": [
-      "com.yungnickyoung.minecraft.ribbits.client.RibbitsFabricClient"
+      "com.yungnickyoung.minecraft.ribbits.fabric.client.RibbitsFabricClient"
     ],
     "modmenu": [
-      "com.yungnickyoung.minecraft.ribbits.config.gui.RibbitsModMenu"
+      "com.yungnickyoung.minecraft.ribbits.fabric.compat.ModMenuCompat"
     ]
   },
   "mixins": [
     "ribbits.mixins.json",
-    "ribbits_fabric.mixins.json"
+    "ribbits.fabric.mixins.json",
+    "yungsapi.mixins.json",
+    "yungsapi_fabric.mixins.json"
   ],
   "accessWidener": "ribbits.accesswidener",
   "depends": {
     "fabricloader": ">=${fabric_loader_version}",
-    "fabric": ">=${fabric_version}",
+    "fabric-api": ">=${fabric_version}",
     "minecraft": ">=${mc_version}",
     "cloth-config2": ">=${clothconfig_version_fabric}",
     "java": ">=${java_version}",
-    "yungsapi": ">=${mc_version}-Fabric-${yungsapi_version}",
     "geckolib": ">=${geckolib_version_fabric}"
   }
 }

@@ -19,8 +19,8 @@ import java.util.UUID;
  * @param enabledSupporterHatPlayers A list of UUIDs of players on the server with the supporter hat enabled
  */
 public record RequestSupporterHatStatePayload(List<UUID> enabledSupporterHatPlayers) implements CustomPacketPayload {
-    public static final CustomPacketPayload.Type<RequestSupporterHatStatePayload> TYPE =
-            new CustomPacketPayload.Type<>(RibbitsCommon.id("request_supporter_hat_state"));
+    public static final Type<RequestSupporterHatStatePayload> TYPE =
+            new Type<>(RibbitsCommon.id("request_supporter_hat_state"));
 
     public static final StreamCodec<FriendlyByteBuf, RequestSupporterHatStatePayload> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.collection(

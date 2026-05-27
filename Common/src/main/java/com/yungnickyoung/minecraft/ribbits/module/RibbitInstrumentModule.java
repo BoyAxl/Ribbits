@@ -3,37 +3,34 @@ package com.yungnickyoung.minecraft.ribbits.module;
 import com.yungnickyoung.minecraft.ribbits.RibbitsCommon;
 import com.yungnickyoung.minecraft.ribbits.data.RibbitInstrument;
 import com.yungnickyoung.minecraft.yungsapi.api.autoregister.AutoRegister;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.sounds.SoundEvent;
+import org.jetbrains.annotations.Nullable;
 
-import javax.annotation.Nullable;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.Set;
+import java.util.*;
 
 @AutoRegister(RibbitsCommon.MOD_ID)
 public class RibbitInstrumentModule {
-    /** Map of all Ribbit instrument ResourceLocations to their RibbitInstrument objects. */
-    private static final Map<ResourceLocation, RibbitInstrument> INSTRUMENT_REGISTRY = new HashMap<>();
+    /**
+     * Map of all Ribbit instrument Identifiers to their RibbitInstrument objects.
+     */
+    private static final Map<Identifier, RibbitInstrument> INSTRUMENT_REGISTRY = new HashMap<>();
 
     /** Set of all valid RibbitInstruments. Same as the registry without the dummy NONE instrument. */
     private static final Set<RibbitInstrument> VALID_INSTRUMENTS = new HashSet<>();
 
     /* Registration of built-in RibbitInstruments. */
     public static final RibbitInstrument NONE = register("none", "", "", null);
-    public static final RibbitInstrument BASS = register("bass", "geo/bass_ribbit.geo.json", "play_bass", SoundModule.MUSIC_RIBBIT_BASS.get());
-    public static final RibbitInstrument BONGO = register("bongo", "geo/bongo_ribbit.geo.json", "play_bongo", SoundModule.MUSIC_RIBBIT_BONGO.get());
-    public static final RibbitInstrument FLUTE = register("flute", "geo/flute_ribbit.geo.json", "play_flute", SoundModule.MUSIC_RIBBIT_FLUTE.get());
-    public static final RibbitInstrument GUITAR = register("guitar", "geo/guitar_ribbit.geo.json", "play_guitar", SoundModule.MUSIC_RIBBIT_GUITAR.get());
+    public static final RibbitInstrument BASS = register("bass", "geo/bass_ribbit", "play_bass", SoundModule.MUSIC_RIBBIT_BASS.get());
+    public static final RibbitInstrument BONGO = register("bongo", "geo/bongo_ribbit", "play_bongo", SoundModule.MUSIC_RIBBIT_BONGO.get());
+    public static final RibbitInstrument FLUTE = register("flute", "geo/flute_ribbit", "play_flute", SoundModule.MUSIC_RIBBIT_FLUTE.get());
+    public static final RibbitInstrument GUITAR = register("guitar", "geo/guitar_ribbit", "play_guitar", SoundModule.MUSIC_RIBBIT_GUITAR.get());
 
     /**
      * Registers a RibbitInstrument with the given name, model, and sound event.
      */
     public static RibbitInstrument register(String name, String modelPath, String animationName, SoundEvent instrumentSoundEvent) {
-        ResourceLocation id = RibbitsCommon.id(name);
+        Identifier id = RibbitsCommon.id(name);
         RibbitInstrument instrument = new RibbitInstrument(id, RibbitsCommon.id(modelPath), animationName, instrumentSoundEvent);
         INSTRUMENT_REGISTRY.put(id, instrument);
         if (!name.equals("none")) VALID_INSTRUMENTS.add(instrument);
@@ -41,11 +38,11 @@ public class RibbitInstrumentModule {
     }
 
     /**
-     * Gets a RibbitInstrument by its ResourceLocation.
-     * @param id ResourceLocation of the RibbitInstrument to get.
-     * @return RibbitInstrument with the given ResourceLocation, or null if not found.
+     * Gets a RibbitInstrument by its Identifier.
+     * @param id Identifier of the RibbitInstrument to get.
+     * @return RibbitInstrument with the given Identifier, or null if not found.
      */
-    public static @Nullable RibbitInstrument getInstrument(ResourceLocation id) {
+    public static @Nullable RibbitInstrument getInstrument(Identifier id) {
         return INSTRUMENT_REGISTRY.get(id);
     }
 

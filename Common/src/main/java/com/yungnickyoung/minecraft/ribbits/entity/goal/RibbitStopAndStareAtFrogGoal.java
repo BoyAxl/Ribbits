@@ -4,8 +4,8 @@ package com.yungnickyoung.minecraft.ribbits.entity.goal;
 import com.yungnickyoung.minecraft.ribbits.entity.RibbitEntity;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.animal.frog.Frog;
+import org.jetbrains.annotations.Nullable;
 
-import javax.annotation.Nullable;
 import java.util.EnumSet;
 import java.util.List;
 
@@ -18,7 +18,7 @@ public class RibbitStopAndStareAtFrogGoal extends Goal {
     public RibbitStopAndStareAtFrogGoal(RibbitEntity ribbit, float searchRadius) {
         this.ribbit = ribbit;
         this.searchRadius = searchRadius;
-        this.setFlags(EnumSet.of(Goal.Flag.MOVE, Goal.Flag.LOOK));
+        this.setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
     }
 
     @Override

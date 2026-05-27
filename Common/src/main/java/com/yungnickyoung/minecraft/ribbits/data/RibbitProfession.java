@@ -1,23 +1,8 @@
 package com.yungnickyoung.minecraft.ribbits.data;
 
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
-public class RibbitProfession {
-    private final ResourceLocation id;
-    private final ResourceLocation modelLocation;
-
-    public RibbitProfession(ResourceLocation id, ResourceLocation modelLocation) {
-        this.id = id;
-        this.modelLocation = modelLocation;
-    }
-
-    public ResourceLocation getId() {
-        return this.id;
-    }
-
-    public ResourceLocation getModelLocation() {
-        return this.modelLocation;
-    }
+public record RibbitProfession(Identifier id, Identifier modelLocation) {
 
     @Override
     public String toString() {
@@ -31,7 +16,7 @@ public class RibbitProfession {
         } else if (!(obj instanceof RibbitProfession other)) {
             return false;
         } else {
-            return this.id.equals(other.getId());
+            return this.id.equals(other.id());
         }
     }
 }

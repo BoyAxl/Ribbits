@@ -5,17 +5,12 @@ import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.yungnickyoung.minecraft.ribbits.module.StructureProcessorTypeModule;
 import com.yungnickyoung.minecraft.yungsapi.api.world.randomize.BlockStateRandomizer;
-import net.minecraft.MethodsReturnNonnullByDefault;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.LevelReader;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.FenceBlock;
-import net.minecraft.world.level.block.SlabBlock;
-import net.minecraft.world.level.block.StairBlock;
-import net.minecraft.world.level.block.WallBlock;
+import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
@@ -28,10 +23,6 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import net.minecraft.world.level.material.FlowingFluid;
 import net.minecraft.world.level.material.Fluids;
 
-import javax.annotation.ParametersAreNonnullByDefault;
-
-@ParametersAreNonnullByDefault
-@MethodsReturnNonnullByDefault
 public class BlockReplaceProcessor extends StructureProcessor {
     public static final MapCodec<BlockReplaceProcessor> CODEC = RecordCodecBuilder.mapCodec(instance -> instance
             .group(
@@ -88,17 +79,17 @@ public class BlockReplaceProcessor extends StructureProcessor {
                 if (blockInfoGlobal.state().hasProperty(SlabBlock.TYPE) && outputState.hasProperty(SlabBlock.TYPE)) {
                     outputState = outputState.setValue(SlabBlock.TYPE, blockInfoGlobal.state().getValue(SlabBlock.TYPE));
                 }
-                if (blockInfoGlobal.state().hasProperty(WallBlock.NORTH_WALL) && outputState.hasProperty(WallBlock.NORTH_WALL)) {
-                    outputState = outputState.setValue(WallBlock.NORTH_WALL, blockInfoGlobal.state().getValue(WallBlock.NORTH_WALL));
+                if (blockInfoGlobal.state().hasProperty(WallBlock.NORTH) && outputState.hasProperty(WallBlock.NORTH)) {
+                    outputState = outputState.setValue(WallBlock.NORTH, blockInfoGlobal.state().getValue(WallBlock.NORTH));
                 }
-                if (blockInfoGlobal.state().hasProperty(WallBlock.EAST_WALL) && outputState.hasProperty(WallBlock.EAST_WALL)) {
-                    outputState = outputState.setValue(WallBlock.EAST_WALL, blockInfoGlobal.state().getValue(WallBlock.EAST_WALL));
+                if (blockInfoGlobal.state().hasProperty(WallBlock.EAST) && outputState.hasProperty(WallBlock.EAST)) {
+                    outputState = outputState.setValue(WallBlock.EAST, blockInfoGlobal.state().getValue(WallBlock.EAST));
                 }
-                if (blockInfoGlobal.state().hasProperty(WallBlock.SOUTH_WALL) && outputState.hasProperty(WallBlock.SOUTH_WALL)) {
-                    outputState = outputState.setValue(WallBlock.SOUTH_WALL, blockInfoGlobal.state().getValue(WallBlock.SOUTH_WALL));
+                if (blockInfoGlobal.state().hasProperty(WallBlock.SOUTH) && outputState.hasProperty(WallBlock.SOUTH)) {
+                    outputState = outputState.setValue(WallBlock.SOUTH, blockInfoGlobal.state().getValue(WallBlock.SOUTH));
                 }
-                if (blockInfoGlobal.state().hasProperty(WallBlock.WEST_WALL) && outputState.hasProperty(WallBlock.WEST_WALL)) {
-                    outputState = outputState.setValue(WallBlock.WEST_WALL, blockInfoGlobal.state().getValue(WallBlock.WEST_WALL));
+                if (blockInfoGlobal.state().hasProperty(WallBlock.WEST) && outputState.hasProperty(WallBlock.WEST)) {
+                    outputState = outputState.setValue(WallBlock.WEST, blockInfoGlobal.state().getValue(WallBlock.WEST));
                 }
                 if (blockInfoGlobal.state().hasProperty(FenceBlock.NORTH) && outputState.hasProperty(FenceBlock.NORTH)) {
                     outputState = outputState.setValue(FenceBlock.NORTH, blockInfoGlobal.state().getValue(FenceBlock.NORTH));
@@ -155,7 +146,12 @@ public class BlockReplaceProcessor extends StructureProcessor {
         return blockInfoGlobal;
     }
 
+    @Override
     protected StructureProcessorType<?> getType() {
         return StructureProcessorTypeModule.BLOCK_REPLACE_PROCESSOR;
+    }
+
+    public static MapCodec<BlockReplaceProcessor> codec() {
+        return CODEC;
     }
 }

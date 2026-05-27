@@ -3,6 +3,7 @@ package com.yungnickyoung.minecraft.ribbits.entity.goal;
 import com.yungnickyoung.minecraft.ribbits.entity.RibbitEntity;
 import com.yungnickyoung.minecraft.ribbits.module.SoundModule;
 import net.minecraft.core.Holder;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
@@ -35,10 +36,10 @@ public class RibbitApplyBuffGoal extends Goal {
         this.cooldownTicks = cooldownTicks;
         this.effects = new HashMap<>();
         this.effects.put(MobEffects.REGENERATION, 1200);
-        this.effects.put(MobEffects.DAMAGE_RESISTANCE, 2400);
-        this.effects.put(MobEffects.DAMAGE_BOOST, 2400);
-        this.effects.put(MobEffects.JUMP, 2400);
-        this.effects.put(MobEffects.DIG_SPEED, 2400);
+        this.effects.put(MobEffects.RESISTANCE, 2400);
+        this.effects.put(MobEffects.STRENGTH, 2400);
+        this.effects.put(MobEffects.JUMP_BOOST, 2400);
+        this.effects.put(MobEffects.HASTE, 2400);
         this.effects.put(MobEffects.HEALTH_BOOST, 2400);
 
         this.setFlags(EnumSet.of(Flag.MOVE));
@@ -46,7 +47,8 @@ public class RibbitApplyBuffGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        return this.ribbit.getBuffCooldown() == 0 && !this.ribbit.level().getNearbyPlayers(TargetingConditions.forCombat().range(this.range), this.ribbit, this.ribbit.getBoundingBox().inflate(this.range, 5.0d, this.range)).isEmpty();
+        ServerLevel serverLevel = getServerLevel(this.ribbit.level());
+        return this.ribbit.getBuffCooldown() == 0 && !serverLevel.getNearbyPlayers(TargetingConditions.forCombat().range(this.range), this.ribbit, this.ribbit.getBoundingBox().inflate(this.range, 5.0d, this.range)).isEmpty();
     }
 
     @Override
@@ -89,7 +91,8 @@ public class RibbitApplyBuffGoal extends Goal {
     private void applyBuffs() {
         this.ticksSinceStart = -1;
 
-        List<Player> nearbyPlayers = this.ribbit.level().getNearbyPlayers(TargetingConditions.forCombat().range(this.range), this.ribbit, this.ribbit.getBoundingBox().inflate(this.range, 5.0d, this.range));
+        ServerLevel serverLevel = getServerLevel(this.ribbit.level());
+        List<Player> nearbyPlayers = serverLevel.getNearbyPlayers(TargetingConditions.forCombat().range(this.range), this.ribbit, this.ribbit.getBoundingBox().inflate(this.range, 5.0d, this.range));
 
         Holder<MobEffect> randomEffect = this.effects.keySet().stream().toList().get(this.ribbit.getRandom().nextInt(this.effects.size()));
         int effectDuration = this.effects.get(randomEffect);

@@ -1,0 +1,27 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.yungnickyoung.minecraft.yungsapi.mixin",
+  "plugin": "com.yungnickyoung.minecraft.yungsapi.YungsApiMixinPlugin",
+  "compatibilityLevel": "JAVA_25",
+  "mixins": [
+    "BeardifierMixin",
+    "FixJukeboxCrashMixin",
+    "NoBasaltColumnsInStructuresMixin",
+    "NoDeltasInStructuresMixin",
+    "NoiseChunkMixin",
+    "NoMagmaInStructuresMixin",
+    "NoVinesInStructuresMixin",
+    "accessor.BeardifierAccessor",
+    "accessor.BoundingBoxAccessor",
+    "accessor.FeaturePoolElementAccessor",
+    "accessor.ListPoolElementAccessor",
+    "accessor.NoiseChunkAccessor",
+    "accessor.PotionAccessor",
+    "accessor.SinglePoolElementAccessor",
+    "accessor.StructureTemplatePoolAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

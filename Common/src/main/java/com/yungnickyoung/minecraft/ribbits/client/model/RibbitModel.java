@@ -1,40 +1,52 @@
 package com.yungnickyoung.minecraft.ribbits.client.model;
 
+import com.geckolib.model.GeoModel;
+import com.geckolib.renderer.base.GeoRenderState;
 import com.yungnickyoung.minecraft.ribbits.RibbitsCommon;
+import com.yungnickyoung.minecraft.ribbits.data.RibbitData;
 import com.yungnickyoung.minecraft.ribbits.entity.RibbitEntity;
+import com.yungnickyoung.minecraft.ribbits.module.DataTicketModule;
 import com.yungnickyoung.minecraft.ribbits.module.RibbitInstrumentModule;
-import net.minecraft.resources.ResourceLocation;
-import software.bernie.geckolib.model.GeoModel;
+import com.yungnickyoung.minecraft.ribbits.module.RibbitProfessionModule;
+import net.minecraft.resources.Identifier;
 
 public class RibbitModel extends GeoModel<RibbitEntity> {
-
-    private static final ResourceLocation TEXTURE = RibbitsCommon.id("textures/entity/ribbit.png");
-    private static final ResourceLocation ANIMATIONS = RibbitsCommon.id("animations/ribbit.animation.json");
-
-    private static final ResourceLocation PRIDE_MODEL = RibbitsCommon.id("geo/pride_ribbit.geo.json");
+    private static final Identifier TEXTURE = RibbitsCommon.id("textures/entity/ribbit.png");
+    private static final Identifier ANIMATIONS = RibbitsCommon.id("ribbit");
+    private static final Identifier PRIDE_MODEL = RibbitsCommon.id("geo/pride_ribbit");
 
     @Override
-    public ResourceLocation getModelResource(RibbitEntity ribbitEntity) {
-        if (ribbitEntity.getPlayingInstrument() && ribbitEntity.getRibbitData().getInstrument() != RibbitInstrumentModule.NONE) {
-            return ribbitEntity.getRibbitData().getInstrument().getModelId();
-        } else if (ribbitEntity.isUmbrellaFalling() || ribbitEntity.isInRain()) {
-            return RibbitsCommon.id("geo/umbrella/" + ribbitEntity.getRibbitData().getProfession().getId().getPath() + "/" + ribbitEntity.getRibbitData().getUmbrellaType().getModelLocationSuffix());
-        } else {
-            if (ribbitEntity.isPrideRibbit()) {
-                return PRIDE_MODEL;
-            }
-            
-            return ribbitEntity.getRibbitData().getProfession().getModelLocation();
+    public Identifier getModelResource(GeoRenderState renderState) {
+        RibbitData data = renderState.getGeckolibData(DataTicketModule.DT_RIBBIT_DATA);
+        if (data == null || data.getProfession() == null) {
+            return RibbitProfessionModule.NITWIT.modelLocation();
         }
+
+        boolean playingInstrument = Boolean.TRUE.equals(renderState.getGeckolibData(DataTicketModule.DT_PLAYING_INSTRUMENT));
+        if (playingInstrument && data.getInstrument() != null && !RibbitInstrumentModule.NONE.equals(data.getInstrument())) {
+            return data.getInstrument().modelId();
+        }
+
+        boolean umbrellaFalling = Boolean.TRUE.equals(renderState.getGeckolibData(DataTicketModule.DT_UMBRELLA_FALLING));
+        boolean inRain = Boolean.TRUE.equals(renderState.getGeckolibData(DataTicketModule.DT_IN_RAIN));
+        if ((umbrellaFalling || inRain) && data.getUmbrellaType() != null) {
+            return RibbitsCommon.id("geo/umbrella/" + data.getProfession().id().getPath() + "/" + data.getUmbrellaType().modelLocationSuffix());
+        }
+
+        if (Boolean.TRUE.equals(renderState.getGeckolibData(DataTicketModule.DT_IS_PRIDE_RIBBIT))) {
+            return PRIDE_MODEL;
+        }
+
+        return data.getProfession().modelLocation();
     }
 
     @Override
-    public ResourceLocation getTextureResource(RibbitEntity object) {
+    public Identifier getTextureResource(GeoRenderState renderState) {
         return TEXTURE;
     }
 
     @Override
-    public ResourceLocation getAnimationResource(RibbitEntity animatable) {
+    public Identifier getAnimationResource(RibbitEntity animatable) {
         return ANIMATIONS;
     }
 }

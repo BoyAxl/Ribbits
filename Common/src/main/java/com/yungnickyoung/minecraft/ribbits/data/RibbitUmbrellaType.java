@@ -1,23 +1,8 @@
 package com.yungnickyoung.minecraft.ribbits.data;
 
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
-public class RibbitUmbrellaType {
-    private final ResourceLocation id;
-    private final String modelLocationSuffix;
-
-    public RibbitUmbrellaType(ResourceLocation id, String modelLocationSuffix) {
-        this.id = id;
-        this.modelLocationSuffix = modelLocationSuffix;
-    }
-
-    public ResourceLocation getId() {
-        return this.id;
-    }
-
-    public String getModelLocationSuffix() {
-        return this.modelLocationSuffix;
-    }
+public record RibbitUmbrellaType(Identifier id, String modelLocationSuffix) {
 
     @Override
     public String toString() {
@@ -31,7 +16,7 @@ public class RibbitUmbrellaType {
         } else if (!(obj instanceof RibbitUmbrellaType other)) {
             return false;
         } else {
-            return this.id.equals(other.getId());
+            return this.id.equals(other.id());
         }
     }
 }

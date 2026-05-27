@@ -1,5 +1,6 @@
 package com.yungnickyoung.minecraft.ribbits.mixin.mixins.client.music;
 
+import com.llamalad7.mixinextras.sugar.Local;
 import com.yungnickyoung.minecraft.ribbits.RibbitsCommon;
 import com.yungnickyoung.minecraft.ribbits.client.sound.InstrumentSoundInstance;
 import com.yungnickyoung.minecraft.ribbits.client.sound.PlayerInstrumentSoundInstance;
@@ -12,23 +13,17 @@ import net.minecraft.client.resources.sounds.TickableSoundInstance;
 import net.minecraft.client.sounds.ChannelAccess;
 import net.minecraft.client.sounds.SoundBufferLibrary;
 import net.minecraft.client.sounds.SoundEngine;
-import net.minecraft.client.sounds.WeighedSoundEvents;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.sounds.SoundSource;
-import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import org.spongepowered.asm.mixin.injection.callback.LocalCapture;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 @Mixin(SoundEngine.class)
 public class SoundEngineMixin implements ISoundEngineDuck {
@@ -43,17 +38,13 @@ public class SoundEngineMixin implements ISoundEngineDuck {
 
     @Inject(method = "play",
             at = @At(value = "INVOKE",
-                    target = "Lnet/minecraft/client/sounds/SoundBufferLibrary;getCompleteBuffer(Lnet/minecraft/resources/ResourceLocation;)Ljava/util/concurrent/CompletableFuture;",
+                    target = "Lnet/minecraft/client/sounds/SoundBufferLibrary;getCompleteBuffer(Lnet/minecraft/resources/Identifier;)Ljava/util/concurrent/CompletableFuture;",
                     shift = At.Shift.BEFORE),
-            locals = LocalCapture.CAPTURE_FAILHARD,
             cancellable = true)
-    private void ribbits$handleRibbitsOffsetSounds(SoundInstance soundInstance, CallbackInfo ci, WeighedSoundEvents $$1x,
-                                                   ResourceLocation $$2x, Sound sound, float $$4x, float $$5x, SoundSource soundSource,
-                                                   float $$7x, float $$8x, SoundInstance.Attenuation attenuation, boolean $$10x,
-                                                   Vec3 $$11x, boolean $$14, boolean $$15, CompletableFuture $$16, ChannelAccess.ChannelHandle channelAccess) {
+    private void ribbits$handleRibbitsOffsetSounds(SoundInstance soundInstance, CallbackInfoReturnable<SoundEngine.PlayResult> cir, @Local Sound sound, @Local ChannelAccess.ChannelHandle channelHandle) {
         if (soundInstance instanceof InstrumentSoundInstance<?> instrumentSoundInstance) {
-            this.playInstrumentSound(sound, channelAccess, instrumentSoundInstance);
-            ci.cancel();
+            this.playInstrumentSound(sound, channelHandle, instrumentSoundInstance);
+            cir.cancel();
         }
     }
 

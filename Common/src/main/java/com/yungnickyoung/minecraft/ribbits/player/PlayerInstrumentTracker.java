@@ -1,7 +1,7 @@
 package com.yungnickyoung.minecraft.ribbits.player;
 
 import com.yungnickyoung.minecraft.ribbits.module.ItemModule;
-import com.yungnickyoung.minecraft.ribbits.services.Services;
+import com.yungnickyoung.minecraft.ribbits.network.ServerNetworkHandler;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
 
@@ -38,14 +38,14 @@ public class PlayerInstrumentTracker {
         playersInRange.forEach(player -> {
             if (!audienceMembers.contains(player)) {
                 audienceMembers.add(player);
-                Services.PLATFORM.startHearingMaraca((ServerPlayer) performer, (ServerPlayer) player);
+                ServerNetworkHandler.startHearingMaraca((ServerPlayer) performer, (ServerPlayer) player);
             }
         });
 
         // Remove any players no longer in the world or out of range
         audienceMembers.removeIf(player -> {
             if (player.isRemoved() || !playersInRange.contains(player)) {
-                Services.PLATFORM.stopHearingMaraca((ServerPlayer) performer, (ServerPlayer) player);
+                ServerNetworkHandler.stopHearingMaraca((ServerPlayer) performer, (ServerPlayer) player);
                 return true;
             }
             return false;
@@ -61,7 +61,7 @@ public class PlayerInstrumentTracker {
     public static void removePerformer(Player performer) {
         // Stop the sound for all players in the audience
         for (Player audienceMember : performerToAudienceMap.get(performer)) {
-            Services.PLATFORM.stopHearingMaraca((ServerPlayer) performer, (ServerPlayer) audienceMember);
+            ServerNetworkHandler.stopHearingMaraca((ServerPlayer) performer, (ServerPlayer) audienceMember);
         }
 
         performerToAudienceMap.remove(performer);

@@ -10,8 +10,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.BonemealableBlock;
-import net.minecraft.world.level.block.WaterlilyBlock;
-import net.minecraft.world.level.block.state.BlockBehaviour;
+import net.minecraft.world.level.block.LilyPadBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 import net.minecraft.world.phys.shapes.CollisionContext;
@@ -19,13 +18,14 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 
 import java.util.Optional;
 
-public class GiantLilyPadBlock extends WaterlilyBlock implements BonemealableBlock {
+public class GiantLilyPadBlock extends LilyPadBlock implements BonemealableBlock {
     protected static final VoxelShape AABB = Block.box(0.0, 0.0, 0.0, 16.0, 1.5, 16.0);
 
-    public GiantLilyPadBlock(BlockBehaviour.Properties properties) {
+    public GiantLilyPadBlock(Properties properties) {
         super(properties);
     }
 
+    @Override
     public VoxelShape getShape(BlockState blockState, BlockGetter blockGetter, BlockPos blockPos, CollisionContext collisionContext) {
         return AABB;
     }
@@ -43,7 +43,7 @@ public class GiantLilyPadBlock extends WaterlilyBlock implements BonemealableBlo
     @Override
     public void performBonemeal(ServerLevel serverLevel, RandomSource random, BlockPos blockPos, BlockState blockState) {
         Optional<PlacedFeature> placedFeature = serverLevel.registryAccess()
-                .registryOrThrow(Registries.PLACED_FEATURE)
+                .lookupOrThrow(Registries.PLACED_FEATURE)
                 .getOptional(PlacedFeatureModule.GIANT_LILYPAD_PATCH);
         placedFeature.ifPresent(feature -> feature.place(serverLevel, serverLevel.getChunkSource().getGenerator(), random, blockPos));
     }

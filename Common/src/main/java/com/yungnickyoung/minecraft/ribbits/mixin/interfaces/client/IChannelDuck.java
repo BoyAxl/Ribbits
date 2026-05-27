@@ -7,6 +7,7 @@ import net.minecraft.client.resources.sounds.SoundInstance;
 
 /**
  * Duck interface for attaching data to Minecraft's {@link Channel} class.
+ *
  * @see ChannelMixin
  */
 public interface IChannelDuck {

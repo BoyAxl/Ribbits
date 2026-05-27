@@ -6,7 +6,7 @@ import com.yungnickyoung.minecraft.ribbits.module.ItemModule;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.ItemInHandRenderer;
-import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.LivingEntity;
@@ -22,18 +22,22 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(ItemInHandRenderer.class)
 public abstract class ItemInHandRendererMixin {
-    @Shadow protected abstract void applyItemArmTransform(PoseStack $$0, HumanoidArm $$1, float $$2);
+    @Shadow
+    protected abstract void applyItemArmTransform(PoseStack $$0, HumanoidArm $$1, float $$2);
 
-    @Shadow @Final private Minecraft minecraft;
+    @Shadow
+    @Final
+    private Minecraft minecraft;
 
-    @Shadow public abstract void renderItem(LivingEntity $$0, ItemStack $$1, ItemDisplayContext $$2, boolean $$3, PoseStack $$4, MultiBufferSource $$5, int $$6);
+    @Shadow
+    public abstract void renderItem(LivingEntity livingEntity, ItemStack itemStack, ItemDisplayContext itemDisplayContext, PoseStack poseStack, SubmitNodeCollector submitNodeCollector, int i);
 
     @Inject(method = "renderArmWithItem",
             at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/vertex/PoseStack;pushPose()V", shift = At.Shift.AFTER),
             cancellable = true)
     private void ribbits$renderArmWithItem(AbstractClientPlayer player, float partialTick, float interpPitch,
                                            InteractionHand hand, float swingProgress, ItemStack handItem,
-                                           float equipProgress, PoseStack poseStack, MultiBufferSource bufferSource,
+                                           float equipProgress, PoseStack poseStack, SubmitNodeCollector submitNodeCollector,
                                            int packedLight, CallbackInfo ci) {
         if (!player.isScoping()) {
             boolean isMainHand = hand == InteractionHand.MAIN_HAND;
@@ -42,7 +46,7 @@ public abstract class ItemInHandRendererMixin {
             if (handItem.is(ItemModule.MARACA.get())) {
                 if (player.isUsingItem() && player.getUseItemRemainingTicks() > 0 && player.getUsedItemHand() == hand) {
                     this.applyMaracaTransform(poseStack, partialTick, arm, handItem, equipProgress);
-                    this.renderItem(player, handItem, isRightArm ? ItemDisplayContext.FIRST_PERSON_RIGHT_HAND : ItemDisplayContext.FIRST_PERSON_LEFT_HAND, !isRightArm, poseStack, bufferSource, packedLight);
+                    this.renderItem(player, handItem, isRightArm ? ItemDisplayContext.FIRST_PERSON_RIGHT_HAND : ItemDisplayContext.FIRST_PERSON_LEFT_HAND, poseStack, submitNodeCollector, packedLight);
                     poseStack.popPose();
                     ci.cancel();
                 }

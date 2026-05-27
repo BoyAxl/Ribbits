@@ -1,28 +1,13 @@
 package com.yungnickyoung.minecraft.ribbits.entity;
 
-import com.yungnickyoung.minecraft.ribbits.RibbitsCommon;
 import com.yungnickyoung.minecraft.ribbits.data.RibbitData;
 import com.yungnickyoung.minecraft.ribbits.data.RibbitInstrument;
-import com.yungnickyoung.minecraft.ribbits.entity.goal.RibbitApplyBuffGoal;
-import com.yungnickyoung.minecraft.ribbits.entity.goal.RibbitFishGoal;
-import com.yungnickyoung.minecraft.ribbits.entity.goal.RibbitGoHomeGoal;
-import com.yungnickyoung.minecraft.ribbits.entity.goal.RibbitPlayMusicGoal;
-import com.yungnickyoung.minecraft.ribbits.entity.goal.RibbitStopAndStareAtFrogGoal;
-import com.yungnickyoung.minecraft.ribbits.entity.goal.RibbitStrollGoal;
-import com.yungnickyoung.minecraft.ribbits.entity.goal.RibbitWaterCropsGoal;
-import com.yungnickyoung.minecraft.ribbits.module.EntityDataSerializerModule;
-import com.yungnickyoung.minecraft.ribbits.module.ParticleTypeModule;
-import com.yungnickyoung.minecraft.ribbits.module.RibbitInstrumentModule;
-import com.yungnickyoung.minecraft.ribbits.module.RibbitProfessionModule;
-import com.yungnickyoung.minecraft.ribbits.module.RibbitTradeModule;
-import com.yungnickyoung.minecraft.ribbits.module.RibbitUmbrellaTypeModule;
-import com.yungnickyoung.minecraft.ribbits.module.SoundModule;
-import net.minecraft.Util;
+import com.yungnickyoung.minecraft.ribbits.entity.goal.*;
+import com.yungnickyoung.minecraft.ribbits.module.*;
+import com.yungnickyoung.minecraft.ribbits.util.GeoIP;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.NbtOps;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -33,51 +18,48 @@ import net.minecraft.world.DifficultyInstance;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.damagesource.DamageSource;
-import net.minecraft.world.entity.AgeableMob;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.ExperienceOrb;
-import net.minecraft.world.entity.MobSpawnType;
-import net.minecraft.world.entity.SpawnGroupData;
+import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
 import net.minecraft.world.entity.ai.goal.OpenDoorGoal;
 import net.minecraft.world.entity.ai.goal.PanicGoal;
-import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.item.trading.Merchant;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.ServerLevelAccessor;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.storage.ValueInput;
+import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.NotNull;
-import software.bernie.geckolib.animatable.GeoAnimatable;
-import software.bernie.geckolib.animatable.GeoEntity;
-import software.bernie.geckolib.animatable.instance.AnimatableInstanceCache;
-import software.bernie.geckolib.animation.AnimatableManager;
-import software.bernie.geckolib.animation.AnimationController;
-import software.bernie.geckolib.animation.AnimationState;
-import software.bernie.geckolib.animation.PlayState;
-import software.bernie.geckolib.animation.RawAnimation;
-import software.bernie.geckolib.util.GeckoLibUtil;
+import org.jetbrains.annotations.Nullable;
+import com.geckolib.animatable.GeoAnimatable;
+import com.geckolib.animatable.GeoEntity;
+import com.geckolib.animatable.instance.AnimatableInstanceCache;
+import com.geckolib.animatable.manager.AnimatableManager;
+import com.geckolib.animation.AnimationController;
+import com.geckolib.animation.RawAnimation;
+import com.geckolib.animation.object.PlayState;
+import com.geckolib.animation.state.AnimationTest;
+import com.geckolib.util.GeckoLibUtil;
 
-import javax.annotation.Nullable;
-import javax.annotation.ParametersAreNonnullByDefault;
 import java.time.LocalDate;
-import java.time.temporal.ChronoField;
+import java.time.Month;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 
 public class RibbitEntity extends AgeableMob implements
         GeoEntity,
-        Merchant
-{
+        Merchant {
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
 
     private static final RawAnimation IDLE = RawAnimation.begin().thenPlay("idle");
@@ -152,7 +134,7 @@ public class RibbitEntity extends AgeableMob implements
     public RibbitEntity(EntityType<RibbitEntity> entityType, Level level) {
         super(entityType, level);
 
-        ((GroundPathNavigation) this.getNavigation()).setCanOpenDoors(true);
+        this.getNavigation().setCanOpenDoors(true);
 
         this.reassessGoals();
     }
@@ -160,6 +142,8 @@ public class RibbitEntity extends AgeableMob implements
     @Override
     protected void registerGoals() {
         super.registerGoals();
+        this.goalSelector.addGoal(0, new RibbitTradeWithPlayerGoal(this));
+        this.goalSelector.addGoal(0, new RibbitLookAtTradingPlayerGoal(this));
         this.goalSelector.addGoal(0, new OpenDoorGoal(this, true));
         this.goalSelector.addGoal(0, new FloatGoal(this));
         this.goalSelector.addGoal(1, new RibbitGoHomeGoal(this, 1.8f, 1f, 60));
@@ -173,7 +157,7 @@ public class RibbitEntity extends AgeableMob implements
     public void aiStep() {
         super.aiStep();
 
-        if (!this.level().isClientSide) {
+        if (!this.level().isClientSide()) {
             if (this.tickCount % 600 == 0 && this.getHealth() < this.getMaxHealth()) {
                 this.setHealth(Math.min(this.getHealth() + 1, this.getMaxHealth()));
             }
@@ -229,25 +213,20 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     @Override
-    public void readAdditionalSaveData(@NotNull CompoundTag tag) {
-        super.readAdditionalSaveData(tag);
+    protected void readAdditionalSaveData(ValueInput valueInput) {
+        super.readAdditionalSaveData(valueInput);
 
-        if (tag.contains("RibbitData", CompoundTag.TAG_COMPOUND)) {
-            RibbitData.CODEC
-                    .parse(NbtOps.INSTANCE, tag.get("RibbitData"))
-                    .resultOrPartial(RibbitsCommon.LOGGER::error)
-                    .ifPresent(this::setRibbitData);
-        }
+        valueInput.read("RibbitData", RibbitData.CODEC)
+                .ifPresent(this::setRibbitData);
 
-        if (tag.contains("Offers", CompoundTag.TAG_COMPOUND)) {
-            MerchantOffers.CODEC
-                    .parse(this.registryAccess().createSerializationContext(NbtOps.INSTANCE), tag.get("Offers"))
-                    .resultOrPartial(Util.prefix("Failed to load offers: ", RibbitsCommon.LOGGER::warn))
-                    .ifPresent(offers -> this.offers = offers);
-        }
+        valueInput.read("Offers", MerchantOffers.CODEC)
+                .ifPresent(offers -> this.offers = offers);
 
-        if (tag.contains("HomePosX") && tag.contains("HomePosY") && tag.contains("HomePosZ")) {
-            this.homePosition = new BlockPos(tag.getInt("HomePosX"), tag.getInt("HomePosY"), tag.getInt("HomePosZ"));
+        Optional<Integer> homeX = valueInput.getInt("HomePosX");
+        Optional<Integer> homeY = valueInput.getInt("HomePosY");
+        Optional<Integer> homeZ = valueInput.getInt("HomePosZ");
+        if (homeX.isPresent() && homeY.isPresent() && homeZ.isPresent()) {
+            this.homePosition = new BlockPos(homeX.get(), homeY.get(), homeZ.get());
         } else {
             this.homePosition = new BlockPos(this.blockPosition());
         }
@@ -255,26 +234,24 @@ public class RibbitEntity extends AgeableMob implements
         this.reassessGoals();
     }
 
+    // NOTE: 若运行时出现 MerchantOffers 反序列化的注册表上下文问题，可改为手动从 valueInput.child("Offers") 取得子输入并结合 valueInput.lookup() 构造 RegistryOps 进行解码。
     @Override
-    public void addAdditionalSaveData(@NotNull CompoundTag tag) {
-        super.addAdditionalSaveData(tag);
-        RibbitData.CODEC.encodeStart(NbtOps.INSTANCE, this.getRibbitData())
-                .resultOrPartial(RibbitsCommon.LOGGER::error)
-                .ifPresent(t -> tag.put("RibbitData", t));
+    protected void addAdditionalSaveData(ValueOutput valueOutput) {
+        super.addAdditionalSaveData(valueOutput);
 
-        if (!this.level().isClientSide) {
+        valueOutput.store("RibbitData", RibbitData.CODEC, this.getRibbitData());
+
+        if (!this.level().isClientSide()) {
             MerchantOffers offers = this.getOffers();
             if (!offers.isEmpty()) {
-                tag.put("Offers", MerchantOffers.CODEC
-                        .encodeStart(this.registryAccess().createSerializationContext(NbtOps.INSTANCE), offers)
-                        .getOrThrow());
+                valueOutput.store("Offers", MerchantOffers.CODEC, offers);
             }
         }
 
         if (this.homePosition != null) {
-            tag.putInt("HomePosX", this.homePosition.getX());
-            tag.putInt("HomePosY", this.homePosition.getY());
-            tag.putInt("HomePosZ", this.homePosition.getZ());
+            valueOutput.putInt("HomePosX", this.homePosition.getX());
+            valueOutput.putInt("HomePosY", this.homePosition.getY());
+            valueOutput.putInt("HomePosZ", this.homePosition.getZ());
         }
     }
 
@@ -298,11 +275,9 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     @Override
-    @ParametersAreNonnullByDefault
     public SpawnGroupData finalizeSpawn(ServerLevelAccessor level, DifficultyInstance difficulty,
-                                        MobSpawnType spawnType, @Nullable SpawnGroupData groupData)
-    {
-        SpawnGroupData data = super.finalizeSpawn(level, difficulty, spawnType, groupData);
+                                        EntitySpawnReason entitySpawnReason, @Nullable SpawnGroupData groupData) {
+        SpawnGroupData data = super.finalizeSpawn(level, difficulty, entitySpawnReason, groupData);
         this.reassessGoals();
         this.homePosition = this.blockPosition();
         return data;
@@ -334,17 +309,17 @@ public class RibbitEntity extends AgeableMob implements
                 return InteractionResult.PASS;
             }
 
-            if (!this.level().isClientSide && !this.offers.isEmpty()) {
+            if (!this.level().isClientSide() && !this.offers.isEmpty()) {
                 this.startTrading(player);
             }
 
-            return InteractionResult.sidedSuccess(this.level().isClientSide);
+            return InteractionResult.SUCCESS;
         }
         return super.mobInteract(player, interactionHand);
     }
 
     public void reassessGoals() {
-        if (this.level().isClientSide) {
+        if (this.level().isClientSide()) {
             return;
         }
 
@@ -568,6 +543,7 @@ public class RibbitEntity extends AgeableMob implements
         this.bandMembers = new HashSet<>(bandMembers);
     }
 
+
     @Override
     public void remove(RemovalReason reason) {
         if (this.isMasterRibbit()) {
@@ -612,17 +588,18 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     public boolean isPrideRibbit() {
+        if (ConfigModule.getConfig().general.disablePrideFlagCN && GeoIP.isInChina()) return false;
         Random rand = new Random(this.getUUID().getLeastSignificantBits());
 
         return isPrideMonth() && this.getRibbitData().getProfession().equals(RibbitProfessionModule.NITWIT) && rand.nextFloat() < 0.33f;
     }
 
     private static boolean isPrideMonth() {
-        if (RibbitsCommon.CONFIG.prideFlagAllYear) return true;
+        if (ConfigModule.getConfig() != null && ConfigModule.getConfig().general.prideFlagAllYear) return true;
 
         LocalDate date = LocalDate.now();
-        int month = date.get(ChronoField.MONTH_OF_YEAR);
-        return month == 6;
+        var month = date.getMonth();
+        return month == Month.JUNE;
     }
 
     public boolean isInRain() {
@@ -630,22 +607,27 @@ public class RibbitEntity extends AgeableMob implements
         return this.level().isRainingAt(pos) || this.level().isRainingAt(BlockPos.containing(pos.getX(), this.getBoundingBox().maxY, pos.getZ()));
     }
 
-    private <E extends GeoAnimatable> PlayState predicate(AnimationState<E> state) {
+    private <E extends GeoAnimatable> PlayState predicate(AnimationTest<E> state) {
+        AnimationController<E> controller = state.controller();
+
         if (this.isUmbrellaFalling()) {
-            state.getController().setAnimation(this.getRibbitData().getProfession() == RibbitProfessionModule.FISHERMAN ? FALLING_FISHERMAN : FALLING);
+            controller.setAnimation(
+                    this.getRibbitData().getProfession() == RibbitProfessionModule.FISHERMAN ? FALLING_FISHERMAN : FALLING
+            );
         } else if (getPlayingInstrument() && this.getRibbitData().getInstrument() != RibbitInstrumentModule.NONE) {
-            state.getController().setAnimation(RawAnimation.begin().thenPlay(this.getRibbitData().getInstrument().getAnimationName()));
+            controller.setAnimation(RawAnimation.begin().thenPlay(this.getRibbitData().getInstrument().animationName()));
         } else if (getBuffing()) {
-            state.getController().setAnimation(this.isInRain() ? SORCERER_BUFF_HOLDING : SORCERER_BUFF);
+            controller.setAnimation(this.isInRain() ? SORCERER_BUFF_HOLDING : SORCERER_BUFF);
         } else if (getFishing()) {
-            state.getController().setAnimation(this.isInRain() ? FISH_HOLDING : FISH);
+            controller.setAnimation(this.isInRain() ? FISH_HOLDING : FISH);
         } else if (getWatering()) {
-            state.getController().setAnimation(this.isInRain() ? WATER_CROPS_HOLDING : WATER_CROPS);
+            controller.setAnimation(this.isInRain() ? WATER_CROPS_HOLDING : WATER_CROPS);
         } else if (state.isMoving() && !this.isInWater()) {
-            state.getController().setAnimation(this.getWalkAnimation());
+            controller.setAnimation(this.getWalkAnimation());
         } else {
-            state.getController().setAnimation(this.getIdleAnimation());
+            controller.setAnimation(this.getIdleAnimation());
         }
+
         return PlayState.CONTINUE;
     }
 
@@ -673,9 +655,10 @@ public class RibbitEntity extends AgeableMob implements
         }
     }
 
+
     @Override
     public void registerControllers(AnimatableManager.ControllerRegistrar controllerRegistrar) {
-        controllerRegistrar.add(new AnimationController<>(this, "controller", 5, this::predicate));
+        controllerRegistrar.add(new AnimationController<RibbitEntity>("controller", 5, this::predicate));
     }
 
     @Override
@@ -720,12 +703,14 @@ public class RibbitEntity extends AgeableMob implements
 
     @Override
     public void notifyTradeUpdated(ItemStack itemStack) {
-        if (!this.level().isClientSide && this.ambientSoundTime > -this.getAmbientSoundInterval() + 20) {
+        if (!this.level().isClientSide() && this.ambientSoundTime > -this.getAmbientSoundInterval() + 20) {
             this.ambientSoundTime = -this.getAmbientSoundInterval();
         }
     }
 
     private void startTrading(Player player) {
+        this.getNavigation().stop();
+        this.getLookControl().setLookAt(player, 30.0F, (float) this.getMaxHeadXRot());
         this.setTradingPlayer(player);
         this.openTradingScreen(player, this.getDisplayName(), 0);
     }
@@ -790,7 +775,7 @@ public class RibbitEntity extends AgeableMob implements
         long l = this.lastRestockGameTime + 12000L;
         long m = this.level().getGameTime();
         boolean bl = m > l;
-        long n = this.level().getDayTime();
+        long n = this.level().getDefaultClockTime();
         if (this.lastRestockCheckDayTime > 0L) {
             long p = n / 24000L;
             long o = this.lastRestockCheckDayTime / 24000L;
@@ -854,5 +839,31 @@ public class RibbitEntity extends AgeableMob implements
     @Override
     public boolean isClientSide() {
         return this.level().isClientSide();
+    }
+
+    @Override
+    public boolean stillValid(Player player) {
+        return this.getTradingPlayer() == player && this.isAlive() && player.distanceToSqr(this) <= 16.0D;
+    }
+
+    @Override
+    public ItemStack getPickResult() {
+        var profession = this.getRibbitData().getProfession();
+
+        if (profession.equals(RibbitProfessionModule.NITWIT)) {
+            return new ItemStack(ItemModule.RIBBIT_NITWIT_SPAWN_EGG.get());
+        } else if (profession.equals(RibbitProfessionModule.FISHERMAN)) {
+            return new ItemStack(ItemModule.RIBBIT_FISHERMAN_SPAWN_EGG.get());
+        } else if (profession.equals(RibbitProfessionModule.GARDENER)) {
+            return new ItemStack(ItemModule.RIBBIT_GARDENER_SPAWN_EGG.get());
+        } else if (profession.equals(RibbitProfessionModule.MERCHANT)) {
+            return new ItemStack(ItemModule.RIBBIT_MERCHANT_SPAWN_EGG.get());
+        } else if (profession.equals(RibbitProfessionModule.SORCERER)) {
+            return new ItemStack(ItemModule.RIBBIT_SORCERER_SPAWN_EGG.get());
+        }
+
+        return SpawnEggItem.byId(this.getType())
+                .map(spawnEggItem -> new ItemStack(spawnEggItem.value()))
+                .orElse(ItemStack.EMPTY);
     }
 }

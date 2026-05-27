@@ -1,6 +1,7 @@
 package com.yungnickyoung.minecraft.ribbits.world.feature;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.DoublePlantBlock;
@@ -18,10 +19,29 @@ public class RibbitsVegetationBlockFeature extends Feature<RibbitsVegetationFeat
     }
 
     public boolean place(FeaturePlaceContext<RibbitsVegetationFeatureConfig> ctx) {
-        WorldGenLevel worldGenLevel = ctx.level();
+        boolean placed = false;
         BlockPos origin = ctx.origin();
+        RandomSource random = ctx.random();
+
+        for (int i = 0; i < ctx.config().tries(); i++) {
+            BlockPos candidate = origin.offset(
+                    random.nextInt(ctx.config().xzSpread() + 1) - random.nextInt(ctx.config().xzSpread() + 1),
+                    random.nextInt(ctx.config().ySpread() + 1) - random.nextInt(ctx.config().ySpread() + 1),
+                    random.nextInt(ctx.config().xzSpread() + 1) - random.nextInt(ctx.config().xzSpread() + 1));
+            placed |= placeSingle(ctx, candidate);
+        }
+
+        return placed;
+    }
+
+    private boolean placeSingle(FeaturePlaceContext<RibbitsVegetationFeatureConfig> ctx, BlockPos origin) {
+        WorldGenLevel worldGenLevel = ctx.level();
         Optional<BlockStateProvider> onSolidBlockStates = ctx.config().onSolidStateProvider();
         List<BlockState> cannotPlaceOn = ctx.config().cannotPlaceOn();
+
+        if (!worldGenLevel.isEmptyBlock(origin)) {
+            return false;
+        }
 
         // Check for blocks we can't place on.
         if (cannotPlaceOn.contains(worldGenLevel.getBlockState(origin.below()))) {
@@ -31,7 +51,7 @@ public class RibbitsVegetationBlockFeature extends Feature<RibbitsVegetationFeat
         // Check for water, in which case we place lily pads instead.
         if (ctx.config().onLiquidStateProvider().isPresent() && worldGenLevel.getBlockState(origin.below()).is(Blocks.WATER)) {
             BlockStateProvider onWaterBlockStates = ctx.config().onLiquidStateProvider().get();
-            worldGenLevel.setBlock(origin, onWaterBlockStates.getState(ctx.random(), origin), 2);
+            worldGenLevel.setBlock(origin, onWaterBlockStates.getState(worldGenLevel, ctx.random(), origin), 2);
             return true;
         }
 
@@ -40,7 +60,7 @@ public class RibbitsVegetationBlockFeature extends Feature<RibbitsVegetationFeat
             return false;
         }
 
-        BlockState toPlace = onSolidBlockStates.get().getState(ctx.random(), origin);
+        BlockState toPlace = onSolidBlockStates.get().getState(worldGenLevel, ctx.random(), origin);
 
         // Place block if it can survive.
         if (toPlace.canSurvive(worldGenLevel, origin)) {

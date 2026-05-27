@@ -2,16 +2,12 @@ package com.yungnickyoung.minecraft.ribbits.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
-import com.yungnickyoung.minecraft.ribbits.RibbitsCommon;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.resources.model.ModelResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.item.ItemStack;
 
 public class MaracaInHandRenderer {
-    public static final ModelResourceLocation MARACA_MODEL = new ModelResourceLocation(RibbitsCommon.id("maraca"), "inventory");
-    public static final ModelResourceLocation MARACA_IN_HAND_MODEL = new ModelResourceLocation(RibbitsCommon.id("maraca_in_hand"), "inventory");
 
     public static void applyMaracaTransform(PoseStack poseStack, float partialTick, HumanoidArm arm, ItemStack handItem, float equipProgress) {
         // Constants

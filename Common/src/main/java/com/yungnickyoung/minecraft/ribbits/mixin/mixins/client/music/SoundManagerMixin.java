@@ -12,7 +12,9 @@ import java.util.UUID;
 
 @Mixin(SoundManager.class)
 public class SoundManagerMixin implements ISoundManagerDuck {
-    @Shadow @Final private SoundEngine soundEngine;
+    @Shadow
+    @Final
+    private SoundEngine soundEngine;
 
     @Override
     public void ribbits$stopRibbitsMusic(UUID ribbitEntityId) {

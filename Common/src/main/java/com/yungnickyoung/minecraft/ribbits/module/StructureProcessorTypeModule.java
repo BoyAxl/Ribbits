@@ -1,12 +1,7 @@
 package com.yungnickyoung.minecraft.ribbits.module;
 
 import com.yungnickyoung.minecraft.ribbits.RibbitsCommon;
-import com.yungnickyoung.minecraft.ribbits.world.processor.BlockReplaceProcessor;
-import com.yungnickyoung.minecraft.ribbits.world.processor.BrewingStandProcessor;
-import com.yungnickyoung.minecraft.ribbits.world.processor.LapisBlockProcessor;
-import com.yungnickyoung.minecraft.ribbits.world.processor.PillarProcessor;
-import com.yungnickyoung.minecraft.ribbits.world.processor.PodzolProcessor;
-import com.yungnickyoung.minecraft.ribbits.world.processor.WarpedNyliumProcessor;
+import com.yungnickyoung.minecraft.ribbits.world.processor.*;
 import com.yungnickyoung.minecraft.yungsapi.api.autoregister.AutoRegister;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureProcessorType;
 
