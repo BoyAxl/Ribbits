@@ -1,10 +1,10 @@
 package com.yungnickyoung.minecraft.ribbits.fabric.client;
+
 import com.yungnickyoung.minecraft.ribbits.client.RibbitsCommonClient;
 import com.yungnickyoung.minecraft.ribbits.client.model.SupporterHatModel;
 import com.yungnickyoung.minecraft.ribbits.client.particle.RibbitSpellParticle;
 import com.yungnickyoung.minecraft.ribbits.client.render.RibbitRenderer;
 import com.yungnickyoung.minecraft.ribbits.fabric.module.NetworkModuleFabric;
-import com.yungnickyoung.minecraft.ribbits.module.BlockModule;
 import com.yungnickyoung.minecraft.ribbits.module.EntityTypeModule;
 import com.yungnickyoung.minecraft.ribbits.module.ParticleTypeModule;
 import com.yungnickyoung.minecraft.ribbits.network.ClientNetworkHandler;

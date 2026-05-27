@@ -1,4 +1,5 @@
 package com.yungnickyoung.minecraft.ribbits.fabric.mixin.mixins.supporters;
+
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.yungnickyoung.minecraft.ribbits.client.supporters.SupportersListClient;
 import net.minecraft.client.Minecraft;
@@ -16,11 +17,13 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
 @Mixin(HumanoidArmorLayer.class)
 public abstract class HumanoidArmorLayerMixinFabric<S extends HumanoidRenderState, M extends HumanoidModel<S>, A extends HumanoidModel<S>> extends RenderLayer<S, M> {
     public HumanoidArmorLayerMixinFabric(RenderLayerParent<S, M> parent) {
         super(parent);
     }
+
     @Inject(method = "renderArmorPiece", at = @At("HEAD"), cancellable = true)
     private void ribbits$dontRenderHelmetWhenWearingSupporterHat(PoseStack poseStack,
                                                                  SubmitNodeCollector submitNodeCollector,

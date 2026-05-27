@@ -1,4 +1,5 @@
 package com.yungnickyoung.minecraft.ribbits.fabric.module;
+
 import com.yungnickyoung.minecraft.ribbits.RibbitsCommon;
 import com.yungnickyoung.minecraft.ribbits.module.EntityDataSerializerModule;
 import net.fabricmc.fabric.api.object.builder.v1.entity.FabricEntityDataRegistry;

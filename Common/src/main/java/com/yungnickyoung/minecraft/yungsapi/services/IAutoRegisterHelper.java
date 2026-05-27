@@ -20,8 +20,6 @@ public interface IAutoRegisterHelper {
      * @param packageName Name of a package containing {@link AutoRegister} annotated methods.
      *                    When specifying a package, try to be as precise as possible,
      *                    as all subpackages will also be recursively scanned.
-     *                    <b>Note that on Forge, all annotations are processed up front, and as such this parameter
-     *                    is not used.</b>
      */
     void invokeAllAutoRegisterMethods(String packageName);
 
@@ -33,19 +31,11 @@ public interface IAutoRegisterHelper {
      * @param packageName Name of a package containing {@link AutoRegister} annotated fields.
      *                    When specifying a package, try to be as precise as possible,
      *                    as all subpackages will also be recursively scanned.
-     *                    <b>Note that on Forge, all annotations are processed up front, and as such this parameter
-     *                    is not used.</b>
      */
     void collectAllAutoRegisterFieldsInPackage(String packageName);
 
     /**
      * Processes all AutoRegister fields that have been queued for registration.
-     * <p>
-     * On Fabric, this will register all queued fields right away.
-     * </p>
-     * <p>
-     * On Forge, this will register event listeners and defer field registration to execute during the proper events.
-     * </p>
      */
     void processQueuedAutoRegEntries();
 

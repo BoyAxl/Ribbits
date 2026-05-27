@@ -77,15 +77,12 @@ public class RibbitSpawnEggItem extends SpawnEggItem {
         }
 
         BlockPos spawnPos = state.getCollisionShape(level, clicked).isEmpty() ? clicked : clicked.relative(face);
-        RibbitEntity ribbit = (RibbitEntity) type.spawn((ServerLevel) level, stack, ctx.getPlayer(),
+        RibbitEntity ribbit = (RibbitEntity) type.spawn(serverLevel, stack, ctx.getPlayer(),
                 spawnPos, EntitySpawnReason.SPAWN_ITEM_USE, true,
                 !Objects.equals(clicked, spawnPos) && face == Direction.UP);
 
         if (ribbit != null) {
-            ribbit.setRibbitData(new RibbitData(
-                    this.profession,
-                    RibbitUmbrellaTypeModule.getRandomUmbrellaType(),
-                    ribbit.getRibbitData().getInstrument()));
+            this.applyRibbitData(ribbit);
             stack.shrink(1);
             level.gameEvent(ctx.getPlayer(), GameEvent.ENTITY_PLACE, clicked);
         }
@@ -107,14 +104,12 @@ public class RibbitSpawnEggItem extends SpawnEggItem {
             return InteractionResult.FAIL;
 
         EntityType<?> type = this.getRibbitType();
-        RibbitEntity ribbit = (RibbitEntity) type.spawn((ServerLevel) level, stack, player,
+        ServerLevel serverLevel = (ServerLevel) level;
+        RibbitEntity ribbit = (RibbitEntity) type.spawn(serverLevel, stack, player,
                 pos, EntitySpawnReason.SPAWN_ITEM_USE, false, false);
         if (ribbit == null) return InteractionResult.PASS;
 
-        ribbit.setRibbitData(new RibbitData(
-                this.profession,
-                RibbitUmbrellaTypeModule.getRandomUmbrellaType(),
-                ribbit.getRibbitData().getInstrument()));
+        this.applyRibbitData(ribbit);
 
         if (!player.getAbilities().instabuild) stack.shrink(1);
         player.awardStat(Stats.ITEM_USED.get(this));
@@ -124,6 +119,13 @@ public class RibbitSpawnEggItem extends SpawnEggItem {
 
     public RibbitProfession getProfession() {
         return profession;
+    }
+
+    void applyRibbitData(RibbitEntity ribbit) {
+        ribbit.setRibbitData(new RibbitData(
+                this.profession,
+                RibbitUmbrellaTypeModule.getRandomUmbrellaType(),
+                ribbit.getRibbitData().getInstrument()));
     }
 
     private void setSpawnerRibbitData(SpawnerBlockEntity spawner, ServerLevel level, BlockPos pos, EntityType<?> type, RibbitData ribbitData) {

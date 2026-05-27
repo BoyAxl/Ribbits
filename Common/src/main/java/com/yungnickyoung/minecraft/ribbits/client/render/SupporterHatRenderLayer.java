@@ -24,9 +24,6 @@ public class SupporterHatRenderLayer extends RenderLayer<AvatarRenderState, Play
     public SupporterHatRenderLayer(RenderLayerParent<AvatarRenderState, PlayerModel> renderLayerParent, Context context) {
         super(renderLayerParent);
 
-        // For some reason, when other mods crash on startup on Forge due to missing dependencies,
-        // Ribbits gets erroneously blamed, so we're just gonna silently catch that error.
-
         try {
             this.hatModel = new SupporterHatModel(context.bakeLayer(SupporterHatModel.LAYER_LOCATION));
         } catch (IllegalArgumentException e) {

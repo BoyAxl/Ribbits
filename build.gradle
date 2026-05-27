@@ -10,9 +10,4 @@ subprojects {
             cacheDynamicVersionsFor 60, 'seconds'
         }
     }
-    // Pass the raw project version string as an extra property to each subproject
-    // since the version property will be overwritten by the complete version string
-    ext {
-        rawVersion = project.version
-    }
 }

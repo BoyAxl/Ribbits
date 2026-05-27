@@ -26,7 +26,6 @@ sourceSets {
         }
         resources {
             srcDir '../Common/src/main/resources'
-            srcDir '../Common/src/generated/resources'
             srcDir 'src/main/resources'
         }
     }

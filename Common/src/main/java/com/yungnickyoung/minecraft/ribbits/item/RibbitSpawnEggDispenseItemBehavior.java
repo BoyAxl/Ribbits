@@ -1,9 +1,7 @@
 package com.yungnickyoung.minecraft.ribbits.item;
 
 import com.yungnickyoung.minecraft.ribbits.RibbitsCommon;
-import com.yungnickyoung.minecraft.ribbits.data.RibbitData;
 import com.yungnickyoung.minecraft.ribbits.entity.RibbitEntity;
-import com.yungnickyoung.minecraft.ribbits.module.RibbitUmbrellaTypeModule;
 import net.minecraft.core.Direction;
 import net.minecraft.core.dispenser.BlockSource;
 import net.minecraft.core.dispenser.DispenseItemBehavior;
@@ -33,10 +31,7 @@ public class RibbitSpawnEggDispenseItemBehavior implements DispenseItemBehavior 
         }
 
         if (ribbit != null) {
-            ribbit.setRibbitData(new RibbitData(
-                    item.getProfession(),
-                    RibbitUmbrellaTypeModule.getRandomUmbrellaType(),
-                    ribbit.getRibbitData().getInstrument()));
+            item.applyRibbitData(ribbit);
         }
 
         stack.shrink(1);

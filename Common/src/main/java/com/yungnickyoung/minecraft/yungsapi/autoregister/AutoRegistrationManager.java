@@ -40,8 +40,6 @@ public class AutoRegistrationManager {
         // References to each of these fields will be stored, so we can register them for the appropriate loader.
         Services.AUTO_REGISTER.collectAllAutoRegisterFieldsInPackage(packageName);
 
-        // In Fabric, AutoRegister fields are registered.
-        // In Forge, AutoRegister events for handling registration are subscribed to.
         Services.AUTO_REGISTER.processQueuedAutoRegEntries();
 
         // AutoRegister methods are invoked

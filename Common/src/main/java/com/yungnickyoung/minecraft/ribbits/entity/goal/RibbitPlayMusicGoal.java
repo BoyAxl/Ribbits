@@ -200,7 +200,6 @@ public class RibbitPlayMusicGoal extends Goal {
                 List<Player> playersInRange = this.ribbit.level().getEntitiesOfClass(Player.class, this.ribbit.getBoundingBox().inflate(32.0, 32.0, 32.0), EntitySelector.LIVING_ENTITY_STILL_ALIVE);
                 for (Player player : playersInRange) {
                     if (!playersHearingMusic.contains(player)) {
-//                    RibbitsCommon.LOGGER.info("Starting music for " + player.getName().getString());
                         playersHearingMusic.add(player);
                         ServerNetworkHandler.onPlayerEnterBandRange((ServerPlayer) player, (ServerLevel) this.ribbit.level(), this.ribbit);
                     }
@@ -209,7 +208,6 @@ public class RibbitPlayMusicGoal extends Goal {
                 // Remove any players no longer in the world or out of range
                 playersHearingMusic.removeIf(player -> {
                     if (player.isRemoved() || !playersInRange.contains(player)) {
-//                    RibbitsCommon.LOGGER.info("Stopping music for " + player.getName().getString());
                         ServerNetworkHandler.onPlayerExitBandRange((ServerPlayer) player, (ServerLevel) this.ribbit.level(), this.ribbit);
                         return true;
                     }

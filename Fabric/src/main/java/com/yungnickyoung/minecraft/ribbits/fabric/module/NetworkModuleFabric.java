@@ -1,4 +1,5 @@
 package com.yungnickyoung.minecraft.ribbits.fabric.module;
+
 import com.yungnickyoung.minecraft.ribbits.network.ClientNetworkHandler;
 import com.yungnickyoung.minecraft.ribbits.network.ServerNetworkHandler;
 import com.yungnickyoung.minecraft.ribbits.network.payload.*;
@@ -19,6 +20,7 @@ public class NetworkModuleFabric {
         ServerPlayNetworking.registerGlobalReceiver(ToggleSupporterHatPayloadC2S.TYPE, (payload, context) ->
                 ServerNetworkHandler.handleToggleSupporterHatC2S(payload));
     }
+
     public static void registerClient() {
         ClientPlayNetworking.registerGlobalReceiver(RibbitStartMusicSinglePayload.TYPE, (payload, context) ->
                 ClientNetworkHandler.handleStartMusicSingleS2C(payload));
