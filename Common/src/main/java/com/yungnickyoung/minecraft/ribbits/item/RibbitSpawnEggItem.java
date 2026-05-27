@@ -3,10 +3,14 @@ package com.yungnickyoung.minecraft.ribbits.item;
 import com.yungnickyoung.minecraft.ribbits.data.RibbitData;
 import com.yungnickyoung.minecraft.ribbits.data.RibbitProfession;
 import com.yungnickyoung.minecraft.ribbits.entity.RibbitEntity;
+import com.yungnickyoung.minecraft.ribbits.mixin.mixins.accessor.BaseSpawnerAccessor;
 import com.yungnickyoung.minecraft.ribbits.module.EntityTypeModule;
+import com.yungnickyoung.minecraft.ribbits.module.RibbitInstrumentModule;
 import com.yungnickyoung.minecraft.ribbits.module.RibbitUmbrellaTypeModule;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.stats.Stats;
 import net.minecraft.world.InteractionHand;
@@ -20,6 +24,7 @@ import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.SpawnData;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -30,6 +35,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 
 import java.util.Objects;
+import java.util.Optional;
 
 public class RibbitSpawnEggItem extends SpawnEggItem {
     private final RibbitProfession profession;
@@ -46,7 +52,7 @@ public class RibbitSpawnEggItem extends SpawnEggItem {
     @Override
     public InteractionResult useOn(UseOnContext ctx) {
         Level level = ctx.getLevel();
-        if (!(level instanceof ServerLevel)) return InteractionResult.SUCCESS;
+        if (!(level instanceof ServerLevel serverLevel)) return InteractionResult.SUCCESS;
 
         ItemStack stack = ctx.getItemInHand();
         BlockPos clicked = ctx.getClickedPos();
@@ -57,7 +63,11 @@ public class RibbitSpawnEggItem extends SpawnEggItem {
         if (state.is(Blocks.SPAWNER)) {
             BlockEntity be = level.getBlockEntity(clicked);
             if (be instanceof SpawnerBlockEntity spawner) {
-                spawner.setEntityId(type, level.getRandom());
+                RibbitData spawnerData = new RibbitData(
+                        this.profession,
+                        RibbitUmbrellaTypeModule.getRandomUmbrellaType(),
+                        RibbitInstrumentModule.NONE);
+                this.setSpawnerRibbitData(spawner, serverLevel, clicked, type, spawnerData);
                 be.setChanged();
                 level.sendBlockUpdated(clicked, state, state, 3);
                 level.gameEvent(ctx.getPlayer(), GameEvent.BLOCK_CHANGE, clicked);
@@ -114,5 +124,17 @@ public class RibbitSpawnEggItem extends SpawnEggItem {
 
     public RibbitProfession getProfession() {
         return profession;
+    }
+
+    private void setSpawnerRibbitData(SpawnerBlockEntity spawner, ServerLevel level, BlockPos pos, EntityType<?> type, RibbitData ribbitData) {
+        CompoundTag entityToSpawn = new CompoundTag();
+        entityToSpawn.putString("id", BuiltInRegistries.ENTITY_TYPE.getKey(type).toString());
+        entityToSpawn.store("RibbitData", RibbitData.CODEC, ribbitData);
+        entityToSpawn.putInt("HomePosX", pos.getX());
+        entityToSpawn.putInt("HomePosY", pos.getY());
+        entityToSpawn.putInt("HomePosZ", pos.getZ());
+
+        ((BaseSpawnerAccessor) spawner.getSpawner())
+                .ribbits$setNextSpawnData(level, pos, new SpawnData(entityToSpawn, Optional.empty(), Optional.empty()));
     }
 }

@@ -3,6 +3,7 @@
   "package": "com.yungnickyoung.minecraft.ribbits.mixin.mixins",
   "compatibilityLevel": "JAVA_25",
   "mixins": [
+    "accessor.BaseSpawnerAccessor",
     "accessor.DoorBlockAccessor"
   ],
   "client": [
