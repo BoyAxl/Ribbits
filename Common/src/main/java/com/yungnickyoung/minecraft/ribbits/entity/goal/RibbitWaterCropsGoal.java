@@ -41,6 +41,7 @@ public class RibbitWaterCropsGoal extends Goal {
 
     @Override
     public void start() {
+        this.wateringTicks = 0;
         float waterModifier = this.ribbit.isInWater() ? RibbitEntity.WATER_SPEED_MULTIPLIER : 1.0f;
 
         this.ribbit.getNavigation().moveTo(this.targetCropPos.getX() + 0.5f,
@@ -49,28 +50,30 @@ public class RibbitWaterCropsGoal extends Goal {
 
     @Override
     public void stop() {
-        this.wateringTicks = 0;
-        this.ribbit.setWatering(false);
-        this.targetCropPos = null;
+        this.resetTarget();
         this.ribbit.setBuffCooldown(this.cooldownTicks);
     }
 
     @Override
     public boolean canUse() {
-        if (this.ribbit.level().isDarkOutside()) return false;
+        if (this.ribbit.level().isDarkOutside() || this.ribbit.getBuffCooldown() > 0) {
+            return false;
+        }
+
+        this.targetCropPos = null;
 
         // Find the closest crop block that isn't fully grown
-        Optional<BlockPos> cropPos = BlockPos.findClosestMatch(this.ribbit.getOnPos(), (int) range, 5, blockPos ->
-                isValidCropBlock(this.ribbit.level(), blockPos, this.ribbit.level().getBlockState(blockPos)) && this.ribbit.getBuffCooldown() == 0);
+        Optional<BlockPos> cropPos = BlockPos.findClosestMatch(this.ribbit.getOnPos(), (int) this.range, 5, blockPos ->
+                isValidCropBlock(this.ribbit.level(), blockPos, this.ribbit.level().getBlockState(blockPos)));
 
         cropPos.ifPresent(blockPos -> this.targetCropPos = blockPos);
-        return this.ribbit.getBuffCooldown() == 0 && cropPos.isPresent();
+        return cropPos.isPresent();
     }
 
     @Override
     public boolean canContinueToUse() {
         // wateringTicks of -1 means the goal has been stopped
-        if (this.wateringTicks < 0) return false;
+        if (this.wateringTicks < 0 || this.targetCropPos == null) return false;
 
         boolean cropNearby = false;
         for (BlockPos nearbyPos : getNearbyPositions()) {
@@ -97,13 +100,15 @@ public class RibbitWaterCropsGoal extends Goal {
     @Override
     public void tick() {
         // If the goal has been stopped, don't do anything
-        if (this.wateringTicks < 0) {
+        if (this.wateringTicks < 0 || this.targetCropPos == null) {
             return;
         }
 
         float waterModifier = this.ribbit.isInWater() ? RibbitEntity.WATER_SPEED_MULTIPLIER : 1.0f;
         this.ribbit.getNavigation().setSpeedModifier(this.speedModifier * waterModifier);
-        if (this.ribbit.distanceToSqr(this.targetCropPos.getX() + 0.5f, this.targetCropPos.getY(), this.targetCropPos.getZ() + 0.5f) < 2.0f) {
+        double distanceToTargetSqr = this.getDistanceToTargetCropSqr();
+
+        if (distanceToTargetSqr < 2.0f) {
             if (this.wateringTicks == 0) {
                 this.ribbit.getLookControl().setLookAt(this.targetCropPos.getX() + 0.5f, this.ribbit.getEyeY(), this.targetCropPos.getZ() + 0.5f);
             }
@@ -117,9 +122,9 @@ public class RibbitWaterCropsGoal extends Goal {
                     tryGrowCropAtPos(this.ribbit.level(), pos);
                 }
 
-                this.wateringTicks = -1; // Prevents watering again until the goal is stopped
+                this.resetTarget(); // Prevents watering again until the goal is stopped
             }
-        } else if (this.ribbit.distanceToSqr(this.targetCropPos.getX() + 0.5f, this.targetCropPos.getY(), this.targetCropPos.getZ() + 0.5f) < 3.0f) {
+        } else if (distanceToTargetSqr < 3.0f) {
             this.ribbit.setWatering(false);
             this.ribbit.getMoveControl().setWantedPosition(this.targetCropPos.getX() + 0.5f,
                     this.targetCropPos.getY(), this.targetCropPos.getZ() + 0.5f, this.speedModifier * waterModifier);
@@ -158,5 +163,17 @@ public class RibbitWaterCropsGoal extends Goal {
                 Mth.floor(this.ribbit.getX() + 1.0),
                 Mth.floor(this.ribbit.getBlockY() + 1.0),
                 Mth.floor(this.ribbit.getZ() + 1.0));
+    }
+
+    private double getDistanceToTargetCropSqr() {
+        return this.ribbit.distanceToSqr(this.targetCropPos.getX() + 0.5f,
+                this.targetCropPos.getY(),
+                this.targetCropPos.getZ() + 0.5f);
+    }
+
+    public void resetTarget() {
+        this.wateringTicks = -1;
+        this.targetCropPos = null;
+        this.ribbit.setWatering(false);
     }
 }

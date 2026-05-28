@@ -9,6 +9,8 @@ import org.jetbrains.annotations.Nullable;
 import java.util.EnumSet;
 
 public class RibbitStrollGoal extends RandomStrollGoal {
+    private static final int OUTDOOR_TARGET_ATTEMPTS = 12;
+
     private final int dayHomeRange;
     private final RibbitEntity ribbit;
 
@@ -40,7 +42,7 @@ public class RibbitStrollGoal extends RandomStrollGoal {
 
     @Override
     public boolean canUse() {
-        if (this.ribbit.level().isDarkOutside()) {
+        if (this.ribbit.level().isDarkOutside() && this.ribbit.hasUsableHomePosition()) {
             return false;
         }
 
@@ -63,12 +65,29 @@ public class RibbitStrollGoal extends RandomStrollGoal {
     @Nullable
     @Override
     protected Vec3 getPosition() {
+        Vec3 firstCandidate = null;
+        for (int attempt = 0; attempt < OUTDOOR_TARGET_ATTEMPTS; attempt++) {
+            Vec3 position = this.getRandomDayHomePosition();
+            if (firstCandidate == null) {
+                firstCandidate = position;
+            }
+
+            if (this.ribbit.isStableOutdoorActivityPosition(BlockPos.containing(position))) {
+                return position;
+            }
+        }
+
+        return firstCandidate;
+    }
+
+    private Vec3 getRandomDayHomePosition() {
         BlockPos distanceVariance = new BlockPos(this.mob.getRandom().nextInt(this.dayHomeRange * 2) - this.dayHomeRange,
                 this.mob.getRandom().nextInt(this.dayHomeRange * 2) - this.dayHomeRange,
                 this.mob.getRandom().nextInt(this.dayHomeRange * 2) - this.dayHomeRange);
 
-        return new Vec3(distanceVariance.getX() + this.ribbit.getHomePosition().getX(),
-                distanceVariance.getY() + this.ribbit.getHomePosition().getY(),
-                distanceVariance.getZ() + this.ribbit.getHomePosition().getZ());
+        BlockPos dayHomePosition = this.ribbit.getStrollAnchorPosition();
+        return new Vec3(distanceVariance.getX() + dayHomePosition.getX(),
+                distanceVariance.getY() + dayHomePosition.getY(),
+                distanceVariance.getZ() + dayHomePosition.getZ());
     }
 }
