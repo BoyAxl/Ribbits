@@ -127,8 +127,9 @@ public class RibbitEntity extends AgeableMob implements
     private static final double SHELTER_DOOR_HOLD_DISTANCE = 2.25D;
     private static final int SHELTER_DOOR_OPEN_HOLD_TICKS = 60;
     private static final double DEFAULT_STEP_HEIGHT = 0.6D;
-    // Temporary QA logging. Remove or disable before release commit.
-    private static final boolean SHELTER_DEBUG_LOGS = true;
+    private static final boolean SHELTER_DEBUG_LOGS = false;
+
+    private static final EntityDimensions RESTING_DIMENSIONS = EntityDimensions.scalable(0.5F, 0.4F).withEyeHeight(0.25F);
 
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
 
@@ -228,6 +229,15 @@ public class RibbitEntity extends AgeableMob implements
         this.getNavigation().setCanFloat(true);
 
         this.reassessGoals();
+    }
+
+    @Override
+    protected EntityDimensions getDefaultDimensions(Pose pose) {
+        if (this.isResting) {
+            return RESTING_DIMENSIONS.scale(this.getAgeScale());
+        }
+
+        return super.getDefaultDimensions(pose);
     }
 
     @Override
@@ -375,7 +385,11 @@ public class RibbitEntity extends AgeableMob implements
         } else if (FISHING.equals(dataAccessor)) {
             this.isFishing = this.entityData.get(FISHING);
         } else if (RESTING.equals(dataAccessor)) {
+            boolean wasResting = this.isResting;
             this.isResting = this.entityData.get(RESTING);
+            if (wasResting != this.isResting) {
+                this.refreshDimensions();
+            }
         } else if (WATERING.equals(dataAccessor)) {
             this.isWatering = this.entityData.get(WATERING);
         } else if (BUFFING.equals(dataAccessor)) {
@@ -659,6 +673,7 @@ public class RibbitEntity extends AgeableMob implements
         int skyVisible = 0;
         int collisionBlocked = 0;
         int occupied = 0;
+        int upperFloorSkipped = 0;
 
         for (BlockPos pos : BlockPos.betweenClosed(min, max)) {
             if (!this.level().getBlockState(pos).is(BlockTags.WOOL_CARPETS)) {
@@ -666,6 +681,11 @@ public class RibbitEntity extends AgeableMob implements
             }
 
             carpets++;
+            if (!this.isBasicFloorNightShelterWaitCarpet(pos)) {
+                upperFloorSkipped++;
+                continue;
+            }
+
             if (!this.hasNightShelterWaitHeadroom(pos)) {
                 blockedAbove++;
                 continue;
@@ -695,9 +715,10 @@ public class RibbitEntity extends AgeableMob implements
                 .toList();
 
         if (candidates.isEmpty()) {
-            this.debugShelter("night shelter carpet search empty {} scannedCarpets={} blockedAbove={} skyVisible={} collisionBlocked={} occupied={}",
+            this.debugShelter("night shelter carpet search empty {} scannedCarpets={} upperFloorSkipped={} blockedAbove={} skyVisible={} collisionBlocked={} occupied={}",
                     this.getShelterDebugLabel(),
                     carpets,
+                    upperFloorSkipped,
                     blockedAbove,
                     skyVisible,
                     collisionBlocked,
@@ -710,10 +731,11 @@ public class RibbitEntity extends AgeableMob implements
                 && !path.canReach()
                 && this.isProgressivePartialNightShelterWaitPath(path);
         if (path == null || (!path.canReach() && !progressivePath)) {
-            this.debugShelter("night shelter carpet path failed {} candidates={} scannedCarpets={} blockedAbove={} skyVisible={} collisionBlocked={} occupied={} target={} end={} canReach={} progressive={}",
+            this.debugShelter("night shelter carpet path failed {} candidates={} scannedCarpets={} upperFloorSkipped={} blockedAbove={} skyVisible={} collisionBlocked={} occupied={} target={} end={} canReach={} progressive={}",
                     this.getShelterDebugLabel(),
                     candidates.size(),
                     carpets,
+                    upperFloorSkipped,
                     blockedAbove,
                     skyVisible,
                     collisionBlocked,
@@ -738,10 +760,15 @@ public class RibbitEntity extends AgeableMob implements
 
     private boolean isAvailableNightShelterWaitCarpet(BlockPos pos) {
         return this.level().getBlockState(pos).is(BlockTags.WOOL_CARPETS)
+                && this.isBasicFloorNightShelterWaitCarpet(pos)
                 && this.hasNightShelterWaitHeadroom(pos)
                 && this.isNightShelterWaitInterior(pos)
                 && this.hasNightShelterWaitBodySpace(pos)
                 && !this.isNightShelterWaitOccupied(pos);
+    }
+
+    private boolean isBasicFloorNightShelterWaitCarpet(BlockPos pos) {
+        return this.isBasicFloorShelterPosition(pos);
     }
 
     private boolean hasNightShelterWaitHeadroom(BlockPos pos) {
@@ -792,7 +819,7 @@ public class RibbitEntity extends AgeableMob implements
 
         if (this.isValidBedHomeSlot(shelterPosition)) {
             return this.isCloseEnoughToBedHomeRestPosition(this.getBedHomeRestPosition(shelterPosition))
-                    || this.isNearUpperBunkBedHomeApproach(shelterPosition);
+                    || this.isNearStackedBedHomeApproach(shelterPosition);
         }
 
         return false;
@@ -907,6 +934,10 @@ public class RibbitEntity extends AgeableMob implements
 
     private void updateRestingPoseState() {
         boolean shouldRest = this.shouldUseRestingPose();
+        if (this.getResting() && !shouldRest && !this.tryLeaveLowerBunkBeforeStanding()) {
+            return;
+        }
+
         if (this.getResting() != shouldRest) {
             this.setResting(shouldRest);
         }
@@ -939,6 +970,47 @@ public class RibbitEntity extends AgeableMob implements
         }
 
         return this.isNearNightShelterWaitRestPosition(this.getNightShelterWaitRestPosition(this.nightShelterWaitPosition));
+    }
+
+    private boolean tryLeaveLowerBunkBeforeStanding() {
+        if (!this.isRestingInLowerBunkBed()) {
+            return true;
+        }
+
+        BlockState bedState = this.level().getBlockState(this.homePosition);
+        if (!bedState.is(BlockTags.BEDS) || !bedState.hasProperty(BedBlock.FACING)) {
+            return true;
+        }
+
+        Optional<Vec3> standUpPosition = BedBlock.findStandUpPosition(
+                this.getType(),
+                this.level(),
+                this.homePosition,
+                bedState.getValue(BedBlock.FACING),
+                this.getYRot());
+        if (standUpPosition.isEmpty()) {
+            this.debugShelter("resting lower bunk exit delayed {} home={} reason=no_stand_up_position",
+                    this.getShelterDebugLabel(),
+                    this.homePosition);
+            return false;
+        }
+
+        Vec3 position = standUpPosition.get();
+        this.debugShelter("resting lower bunk exit {} home={} standUp={}",
+                this.getShelterDebugLabel(),
+                this.homePosition,
+                position);
+        this.getNavigation().stop();
+        this.setDeltaMovement(Vec3.ZERO);
+        this.setPos(position.x, position.y, position.z);
+        return true;
+    }
+
+    private boolean isRestingInLowerBunkBed() {
+        return this.homePositionIsAutomaticBed
+                && this.homePosition != null
+                && this.isLowerBunkBedHomeSlot(this.homePosition)
+                && this.isCloseEnoughToBedHomeRestPosition(this.getBedHomeRestPosition(this.homePosition));
     }
 
     private boolean canUpdateGroundNavigationNow() {
@@ -1188,7 +1260,7 @@ public class RibbitEntity extends AgeableMob implements
 
             if (!approachPositions.isEmpty()) {
                 Path path = this.getNavigation().createPath(approachPositions, 0);
-                this.resolveBedHomeApproachFromPath(approachPositions, path)
+                this.resolveBedHomeApproachFromPath(homePosition, approachPositions, path)
                         .ifPresent(approachPosition -> this.activeBedHomeApproachPosition = approachPosition);
                 if (path != null && !path.canReach()
                         && !this.isAcceptablePartialBedHomePath(path)
@@ -1215,13 +1287,13 @@ public class RibbitEntity extends AgeableMob implements
         if (homePosition.equals(this.pendingBedHomePosition)
                 && this.pendingBedHomeApproachPosition != null
                 && this.getBedHomeApproachPositions(homePosition).contains(this.pendingBedHomeApproachPosition)
-                && this.hasBedHomeApproachSpace(this.pendingBedHomeApproachPosition)) {
+                && this.hasBedHomeApproachSpace(this.pendingBedHomeApproachPosition, homePosition)) {
             return this.pendingBedHomeApproachPosition;
         }
 
         if (this.activeBedHomeApproachPosition != null
                 && this.getBedHomeApproachPositions(homePosition).contains(this.activeBedHomeApproachPosition)
-                && this.hasBedHomeApproachSpace(this.activeBedHomeApproachPosition)) {
+                && this.hasBedHomeApproachSpace(this.activeBedHomeApproachPosition, homePosition)) {
             return this.activeBedHomeApproachPosition;
         }
 
@@ -1229,6 +1301,7 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     private Optional<BlockPos> resolveBedHomeApproachFromPath(
+            BlockPos bedSlot,
             Set<BlockPos> approachPositions,
             @Nullable Path path) {
         if (path == null) {
@@ -1236,13 +1309,13 @@ public class RibbitEntity extends AgeableMob implements
         }
 
         BlockPos target = path.getTarget();
-        if (approachPositions.contains(target) && this.hasBedHomeApproachSpace(target)) {
+        if (approachPositions.contains(target) && this.hasBedHomeApproachSpace(target, bedSlot)) {
             return Optional.of(target.immutable());
         }
 
         BlockPos reference = path.getEndNode() == null ? target : path.getEndNode().asBlockPos();
         return approachPositions.stream()
-                .filter(this::hasBedHomeApproachSpace)
+                .filter(approachPosition -> this.hasBedHomeApproachSpace(approachPosition, bedSlot))
                 .filter(approachPosition -> this.isBedHomeApproachCloseToPathEnd(approachPosition, reference))
                 .min(Comparator.comparingDouble(approachPosition -> approachPosition.distSqr(reference)))
                 .map(BlockPos::immutable);
@@ -1339,15 +1412,15 @@ public class RibbitEntity extends AgeableMob implements
 
         boolean reachedRestPosition = this.isCloseEnoughToBedHomeRestPosition(this.getBedHomeRestPosition(home));
         boolean reachedBedHomeApproach = !reachedRestPosition && this.isNearBedHomeSlotApproach(home);
-        boolean reachedUpperBunkApproach = !reachedRestPosition
+        boolean reachedStackedBedApproach = !reachedRestPosition
                 && !reachedBedHomeApproach
-                && this.isNearUpperBunkBedHomeApproach(home);
+                && this.isNearStackedBedHomeApproach(home);
         boolean pendingBedHome = home.equals(this.pendingBedHomePosition);
-        if (!reachedRestPosition && !reachedBedHomeApproach && !reachedUpperBunkApproach) {
+        if (!reachedRestPosition && !reachedBedHomeApproach && !reachedStackedBedApproach) {
             return false;
         }
 
-        if (reachedBedHomeApproach || reachedUpperBunkApproach) {
+        if (reachedBedHomeApproach || reachedStackedBedApproach) {
             this.debugShelter("bed approach accepted {} home={} approach={} part={} stack={}",
                     this.getShelterDebugLabel(),
                     home,
@@ -1498,6 +1571,7 @@ public class RibbitEntity extends AgeableMob implements
             this.debugShelter("bed path detail {} slots={} approaches=0 reason=no_valid_approaches",
                     this.getShelterDebugLabel(),
                     bedSlots.size());
+            this.debugNoValidBedHomeApproaches(bedSlots);
             return Optional.empty();
         }
 
@@ -1534,13 +1608,13 @@ public class RibbitEntity extends AgeableMob implements
             Map<BlockPos, BlockPos> slotByApproach) {
         BlockPos target = path.getTarget();
         BlockPos matchingSlot = slotByApproach.get(target);
-        if (matchingSlot != null && this.hasBedHomeApproachSpace(target)) {
+        if (matchingSlot != null && this.hasBedHomeApproachSpace(target, matchingSlot)) {
             return Optional.of(new BedHomePathSelection(matchingSlot, target.immutable()));
         }
 
         BlockPos reference = path.getEndNode() == null ? target : path.getEndNode().asBlockPos();
         return slotByApproach.entrySet().stream()
-                .filter(entry -> this.hasBedHomeApproachSpace(entry.getKey()))
+                .filter(entry -> this.hasBedHomeApproachSpace(entry.getKey(), entry.getValue()))
                 .filter(entry -> this.isBedHomeApproachCloseToPathEnd(entry.getKey(), reference))
                 .min(Comparator.comparingDouble(entry -> entry.getKey().distSqr(reference)))
                 .map(entry -> new BedHomePathSelection(entry.getValue(), entry.getKey()));
@@ -1696,7 +1770,7 @@ public class RibbitEntity extends AgeableMob implements
                         + "/slot=" + entry.getValue().toShortString()
                         + "/dist=" + String.format("%.2f", Math.sqrt(entry.getKey().distSqr(endPos)))
                         + "/close=" + this.isBedHomeApproachCloseToPathEnd(entry.getKey(), endPos)
-                        + "/space=" + this.hasBedHomeApproachSpace(entry.getKey())
+                        + "/space=" + this.hasBedHomeApproachSpace(entry.getKey(), entry.getValue())
                         + "/context=" + this.getPathProbeDebug(entry.getKey()))
                 .toList();
 
@@ -1801,6 +1875,16 @@ public class RibbitEntity extends AgeableMob implements
                 approaches);
     }
 
+    private void debugNoValidBedHomeApproaches(List<BlockPos> bedSlots) {
+        if (!SHELTER_DEBUG_LOGS) {
+            return;
+        }
+
+        bedSlots.stream()
+                .limit(BED_HOME_DEBUG_MAX_SLOT_DETAILS)
+                .forEach(bedSlot -> this.debugBedHomeApproachPositions(bedSlot, Map.of()));
+    }
+
     private String getBedHomeApproachDebugString(
             BlockPos pos,
             BlockPos bedSlot,
@@ -1809,13 +1893,23 @@ public class RibbitEntity extends AgeableMob implements
         BlockState supportState = this.level().getBlockState(pos.below());
         BlockState aboveState = this.level().getBlockState(pos.above());
         boolean selectedForSlot = bedSlot.equals(slotByApproach.get(pos));
-        boolean hasCollisionSpace = this.level().noCollision(this, this.getBedHomeApproachBox(pos));
+        boolean hasCollisionSpace = this.hasBedHomeApproachSpace(pos, bedSlot);
         return pos.toShortString()
                 + "/selected=" + selectedForSlot
                 + "/space=" + hasCollisionSpace
+                + "/reason=" + this.getBedHomeApproachSpaceReason(pos, bedSlot)
                 + "/floor=" + floorState.getBlock()
                 + "/support=" + supportState.getBlock()
-                + "/above=" + aboveState.getBlock();
+                + "/above=" + aboveState.getBlock()
+                + "/supportY=" + String.format(Locale.ROOT, "%.3f", this.getSupportSurfaceY(pos));
+    }
+
+    private String getBedHomeApproachSpaceReason(BlockPos pos, BlockPos bedSlot) {
+        if (this.hasBedHomeApproachSpace(pos, bedSlot)) {
+            return "ok";
+        }
+
+        return "collision:" + this.getPathProbeDebug(pos);
     }
 
     private boolean isAcceptablePartialBedHomePath(Path path) {
@@ -1905,8 +1999,8 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     private Set<BlockPos> getBedHomeApproachPositions(BlockPos bedSlot) {
-        if (this.isUpperBunkBedHomeSlot(bedSlot)) {
-            return this.getUpperBunkBedHomeSnapApproachPositions(bedSlot);
+        if (this.isStackedBedHomeSlot(bedSlot)) {
+            return this.getBunkBedHomeSnapApproachPositions(bedSlot);
         }
 
         return this.getBedHomeSlotAdjacentApproachPositions(bedSlot);
@@ -1915,7 +2009,7 @@ public class RibbitEntity extends AgeableMob implements
     private Set<BlockPos> getValidBedHomeApproachPositions(BlockPos bedSlot) {
         Set<BlockPos> approachPositions = new LinkedHashSet<>();
         for (BlockPos approachPosition : this.getBedHomeApproachPositions(bedSlot)) {
-            if (this.hasBedHomeApproachSpace(approachPosition)) {
+            if (this.hasBedHomeApproachSpace(approachPosition, bedSlot)) {
                 approachPositions.add(approachPosition);
             }
         }
@@ -1944,7 +2038,7 @@ public class RibbitEntity extends AgeableMob implements
         approachPositions.add(headPos.relative(right).immutable());
         approachPositions.add(footPos.relative(left).immutable());
         approachPositions.add(footPos.relative(right).immutable());
-        if (this.isUpperBunkBedHomeSlot(bedSlot)) {
+        if (this.isStackedBedHomeSlot(bedSlot)) {
             return approachPositions;
         }
 
@@ -1959,6 +2053,10 @@ public class RibbitEntity extends AgeableMob implements
         return this.level().noCollision(this, this.getBedHomeApproachBox(pos));
     }
 
+    private boolean hasBedHomeApproachSpace(BlockPos pos, BlockPos bedSlot) {
+        return this.level().noCollision(this, this.getBedHomeApproachBox(pos, bedSlot));
+    }
+
     private boolean isBedHomeApproachCloseToPathEnd(BlockPos approachPosition, BlockPos pathEndPosition) {
         double horizontalDistanceSqr = Mth.square(approachPosition.getX() - pathEndPosition.getX())
                 + Mth.square(approachPosition.getZ() - pathEndPosition.getZ());
@@ -1967,14 +2065,41 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     private AABB getBedHomeApproachBox(BlockPos pos) {
-        double halfWidth = this.getBbWidth() / 2.0D;
+        return this.getBedHomeApproachBox(pos, null);
+    }
+
+    private AABB getBedHomeApproachBox(BlockPos pos, @Nullable BlockPos bedSlot) {
+        EntityDimensions dimensions = this.getStandingDimensions();
+        double halfWidth = dimensions.width() / 2.0D;
+        double minY = this.getBedHomeApproachBoxMinY(pos, bedSlot);
         return new AABB(
                 pos.getX() + 0.5D - halfWidth,
-                pos.getY() + 0.001D,
+                minY,
                 pos.getZ() + 0.5D - halfWidth,
                 pos.getX() + 0.5D + halfWidth,
-                pos.getY() + this.getBbHeight(),
+                minY + dimensions.height(),
                 pos.getZ() + 0.5D + halfWidth);
+    }
+
+    private double getBedHomeApproachBoxMinY(BlockPos pos, @Nullable BlockPos bedSlot) {
+        if (bedSlot != null
+                && this.isLowerBunkBedHomeSlot(bedSlot)
+                && this.isLowWalkableBedHomeApproachSurface(pos)) {
+            return this.getSupportSurfaceY(pos) + 0.001D;
+        }
+
+        return pos.getY() + 0.001D;
+    }
+
+    private boolean isLowWalkableBedHomeApproachSurface(BlockPos pos) {
+        BlockState state = this.level().getBlockState(pos);
+        var collisionShape = state.getCollisionShape(this.level(), pos);
+        if (collisionShape.isEmpty()) {
+            return false;
+        }
+
+        double collisionTop = collisionShape.max(Direction.Axis.Y);
+        return collisionTop > 0.0D && collisionTop <= this.maxUpStep();
     }
 
     private boolean isBedHomePathRetryCoolingDown(BlockPos bedSlot) {
@@ -2063,11 +2188,11 @@ public class RibbitEntity extends AgeableMob implements
 
     private String getBedHomeBodySpaceBlockReason(BlockPos bedSlot) {
         BlockState aboveState = this.level().getBlockState(bedSlot.above());
-        if (!aboveState.isAir()) {
-            if (this.isLowerBunkBedHomeSlot(bedSlot)) {
-                return "lower_bunk_blocked_by_upper_bed";
-            }
+        if (this.isLowerBunkBedHomeSlot(bedSlot)) {
+            return "lower_bunk_rest_collision";
+        }
 
+        if (!aboveState.isAir()) {
             return "blocked_above=" + aboveState;
         }
 
@@ -2113,7 +2238,7 @@ public class RibbitEntity extends AgeableMob implements
                 && this.pendingBedHomeApproachPosition != null
                 && this.isUsableAutomaticBedHomeSlot(this.pendingBedHomePosition)
                 && this.getBedHomeApproachPositions(this.pendingBedHomePosition).contains(this.pendingBedHomeApproachPosition)
-                && this.hasBedHomeApproachSpace(this.pendingBedHomeApproachPosition)
+                && this.hasBedHomeApproachSpace(this.pendingBedHomeApproachPosition, this.pendingBedHomePosition)
                 && !this.isBedHomeSlotClaimed(this.pendingBedHomePosition);
     }
 
@@ -2245,27 +2370,42 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     private boolean hasBedHomeBodySpace(BlockPos pos) {
-        if (this.isLowerBunkBedHomeSlot(pos)) {
-            return false;
-        }
-
         return this.level().noCollision(this, this.getBedHomeBodyBox(pos));
     }
 
     private boolean isBasicFloorBedHomeSlot(BlockPos pos) {
+        return this.isBasicFloorShelterPosition(pos);
+    }
+
+    private boolean isBasicFloorShelterPosition(BlockPos pos) {
         return Math.abs(pos.getY() - this.blockPosition().getY()) <= BED_HOME_BASIC_FLOOR_VERTICAL_DISTANCE;
     }
 
     private AABB getBedHomeBodyBox(BlockPos pos) {
         Vec3 restPosition = this.getBedHomeRestPosition(pos);
-        double halfWidth = this.getBbWidth() / 2.0D;
+        EntityDimensions dimensions = this.getBedHomeBodyDimensions(pos);
+        double halfWidth = dimensions.width() / 2.0D;
         return new AABB(
                 restPosition.x - halfWidth,
                 restPosition.y + 0.001D,
                 restPosition.z - halfWidth,
                 restPosition.x + halfWidth,
-                restPosition.y + this.getBbHeight(),
+                restPosition.y + dimensions.height(),
                 restPosition.z + halfWidth);
+    }
+
+    private EntityDimensions getBedHomeBodyDimensions(BlockPos pos) {
+        return this.isLowerBunkBedHomeSlot(pos)
+                ? this.getRestingDimensions()
+                : this.getStandingDimensions();
+    }
+
+    private EntityDimensions getRestingDimensions() {
+        return RESTING_DIMENSIONS.scale(this.getAgeScale()).scale(this.getScale());
+    }
+
+    private EntityDimensions getStandingDimensions() {
+        return this.getType().getDimensions().scale(this.getAgeScale()).scale(this.getScale());
     }
 
     private Vec3 getBedHomeRestPosition(BlockPos pos) {
@@ -2290,7 +2430,7 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     private boolean isNearBedHomeSlotApproach(BlockPos bedSlot) {
-        if (this.isUpperBunkBedHomeSlot(bedSlot)) {
+        if (this.isStackedBedHomeSlot(bedSlot)) {
             return false;
         }
 
@@ -2302,19 +2442,19 @@ public class RibbitEntity extends AgeableMob implements
                         BED_HOME_UPPER_BUNK_APPROACH_VERTICAL_DISTANCE));
     }
 
-    private boolean isNearUpperBunkBedHomeApproach(BlockPos bedSlot) {
-        if (!this.isUpperBunkBedHomeSlot(bedSlot)) {
+    private boolean isNearStackedBedHomeApproach(BlockPos bedSlot) {
+        if (!this.isStackedBedHomeSlot(bedSlot)) {
             return false;
         }
 
-        return this.getUpperBunkBedHomeSnapApproachPositions(bedSlot).stream()
+        return this.getBunkBedHomeSnapApproachPositions(bedSlot).stream()
                 .anyMatch(pos -> this.isNearBlockCenter(
                         pos,
                         BED_HOME_UPPER_BUNK_APPROACH_HORIZONTAL_DISTANCE,
                         BED_HOME_UPPER_BUNK_APPROACH_VERTICAL_DISTANCE));
     }
 
-    private Set<BlockPos> getUpperBunkBedHomeSnapApproachPositions(BlockPos bedSlot) {
+    private Set<BlockPos> getBunkBedHomeSnapApproachPositions(BlockPos bedSlot) {
         Set<BlockPos> approachPositions = new LinkedHashSet<>();
         if (!this.isBedHomeSlot(bedSlot)) {
             return approachPositions;
@@ -2365,6 +2505,9 @@ public class RibbitEntity extends AgeableMob implements
         Vec3 restPosition = this.getBedHomeRestPosition(home);
         this.getNavigation().stop();
         this.setDeltaMovement(Vec3.ZERO);
+        if (!this.getResting()) {
+            this.setResting(true);
+        }
         this.setPos(restPosition.x, restPosition.y, restPosition.z);
     }
 
@@ -2853,8 +2996,13 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     public void setResting(boolean isResting) {
+        if (this.isResting == isResting) {
+            return;
+        }
+
         this.isResting = isResting;
         this.entityData.set(RESTING, isResting);
+        this.refreshDimensions();
     }
 
     public boolean getBuffing() {
