@@ -3541,6 +3541,38 @@
           }
         }
       },
+      "resting": {
+        "loop": true,
+        "animation_length": 1.52,
+        "bones": {
+          "main": {
+            "position": {
+              "vector": [0, -2, -1.4]
+            }
+          },
+          "body": {
+            "rotation": {
+              "vector": [0, 0, 0]
+            }
+          },
+          "right_leg": {
+            "rotation": {
+              "vector": [-90, 12.5, 5]
+            },
+            "position": {
+              "vector": [0, 0.7, -3]
+            }
+          },
+          "left_leg": {
+            "rotation": {
+              "vector": [-90, -12.5, -5]
+            },
+            "position": {
+              "vector": [0, 0.7, -3]
+            }
+          }
+        }
+      },
       "fishing": {
         "loop": true,
         "animation_length": 1.52,
