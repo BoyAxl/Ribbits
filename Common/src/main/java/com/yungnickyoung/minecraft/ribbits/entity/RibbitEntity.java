@@ -92,6 +92,8 @@ public class RibbitEntity extends AgeableMob implements
     private static final int BED_HOME_PATHFIND_BATCH_SIZE = 5;
     private static final int BED_HOME_SEARCH_RETRY_MIN_TICKS = 20;
     private static final int BED_HOME_SEARCH_RETRY_JITTER_TICKS = 20;
+    private static final long VANILLA_DAY_PERIOD_TICKS = 24000L;
+    private static final long VANILLA_NIGHT_MARKER_TICK = 13000L;
     private static final int BED_HOME_UNAVAILABLE_RETRY_MIN_TICKS = 600;
     private static final int BED_HOME_UNAVAILABLE_RETRY_JITTER_TICKS = 100;
     private static final int BED_HOME_PENDING_RETRY_MIN_TICKS = 300;
@@ -110,12 +112,12 @@ public class RibbitEntity extends AgeableMob implements
     private static final int NIGHT_SHELTER_WAIT_CARPET_SEARCH_RANGE = 48;
     private static final int NIGHT_SHELTER_WAIT_CARPET_CANDIDATE_LIMIT = 24;
     private static final double BED_HOME_PATH_PROGRESS_DISTANCE_SQR = 4.0D;
-    private static final double BED_HOME_SNAP_HORIZONTAL_DISTANCE = 1.35D;
-    private static final double BED_HOME_SNAP_VERTICAL_DISTANCE = 1.75D;
-    private static final double BED_HOME_UPPER_BUNK_APPROACH_HORIZONTAL_DISTANCE = 1.45D;
-    private static final double BED_HOME_UPPER_BUNK_APPROACH_VERTICAL_DISTANCE = 1.75D;
-    private static final double BED_HOME_UPPER_BUNK_ADJACENT_HORIZONTAL_DISTANCE = 1.65D;
-    private static final double BED_HOME_UPPER_BUNK_ADJACENT_VERTICAL_DISTANCE = 1.75D;
+    private static final double BED_HOME_SNAP_HORIZONTAL_DISTANCE = 0.25D;
+    private static final double BED_HOME_SNAP_VERTICAL_DISTANCE = 0.55D;
+    private static final double BED_HOME_UPPER_BUNK_APPROACH_HORIZONTAL_DISTANCE = 0.85D;
+    private static final double BED_HOME_UPPER_BUNK_APPROACH_VERTICAL_DISTANCE = 1.15D;
+    private static final double BED_HOME_UPPER_BUNK_ADJACENT_HORIZONTAL_DISTANCE = 0.85D;
+    private static final double BED_HOME_UPPER_BUNK_ADJACENT_VERTICAL_DISTANCE = 1.15D;
     private static final double BED_HOME_PARTIAL_PATH_MAX_HORIZONTAL_DISTANCE = 2.5D;
     private static final double NIGHT_SHELTER_WAIT_REACHED_DISTANCE = 0.9D;
     private static final double NIGHT_SHELTER_WAIT_CENTER_HORIZONTAL_DISTANCE = 0.12D;
@@ -467,7 +469,7 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     public boolean tryAssignShelterHome() {
-        if (!this.level().isDarkOutside() || this.homePositionSetByPlayer) {
+        if (!this.isShelterNight() || this.homePositionSetByPlayer) {
             return false;
         }
 
@@ -565,7 +567,7 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     private void updateNightCommunityAnchor() {
-        if (!this.level().isDarkOutside() || this.hasUsableHomePosition()) {
+        if (!this.isShelterNight() || this.hasUsableHomePosition()) {
             this.clearNightCommunityAnchor();
             return;
         }
@@ -603,7 +605,7 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     private void updateNightShelterWaitTarget() {
-        if (!this.level().isDarkOutside() || this.hasUsableHomePosition()) {
+        if (!this.isShelterNight() || this.hasUsableHomePosition()) {
             this.clearNightShelterWait();
             return;
         }
@@ -804,7 +806,7 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     public boolean canUseNightShelterWait() {
-        return this.level().isDarkOutside()
+        return this.isShelterNight()
                 && !this.isVehicle()
                 && !this.isLeashed()
                 && !this.hasUsableHomePosition()
@@ -865,6 +867,27 @@ public class RibbitEntity extends AgeableMob implements
                 restPosition,
                 this.nextBedHomeSearchTick,
                 recentered);
+    }
+
+    public boolean tryFineApproachToNightShelterWaitPosition(double speedModifier) {
+        if (this.nightShelterWaitPosition == null) {
+            return false;
+        }
+
+        Vec3 restPosition = this.getNightShelterWaitRestPosition(this.nightShelterWaitPosition);
+        if (this.isNearNightShelterWaitRestPosition(restPosition)) {
+            return false;
+        }
+
+        this.getMoveControl().setWantedPosition(restPosition.x, restPosition.y, restPosition.z, speedModifier);
+        if (SHELTER_DEBUG_LOGS && this.tickCount % 20 == 0) {
+            this.debugShelter("night shelter wait fine approach {} waitPos={} restDist={} speed={}",
+                    this.getShelterDebugLabel(),
+                    this.nightShelterWaitPosition,
+                    this.formatDistanceTo(restPosition),
+                    String.format(Locale.ROOT, "%.2f", speedModifier));
+        }
+        return true;
     }
 
     private boolean isNearNightShelterWaitRestPosition(Vec3 restPosition) {
@@ -957,8 +980,24 @@ public class RibbitEntity extends AgeableMob implements
         return this.blockPosition();
     }
 
+    public boolean isShelterNight() {
+        if (this.level().dimensionType().hasFixedTime()) {
+            return false;
+        }
+
+        return Math.floorMod(this.level().getDefaultClockTime(), VANILLA_DAY_PERIOD_TICKS) >= VANILLA_NIGHT_MARKER_TICK;
+    }
+
+    public boolean isDayActivityTime() {
+        if (this.level().dimensionType().hasFixedTime()) {
+            return false;
+        }
+
+        return !this.isShelterNight();
+    }
+
     public BlockPos getStrollAnchorPosition() {
-        if (this.level().isDarkOutside()
+        if (this.isShelterNight()
                 && !this.hasUsableHomePosition()
                 && this.nightCommunityAnchorPosition != null) {
             return this.nightCommunityAnchorPosition;
@@ -968,7 +1007,7 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     public boolean shouldLeaveUpperShelter() {
-        if (this.level().isDarkOutside() || this.isVehicle() || this.isLeashed()) {
+        if (this.isShelterNight() || this.isVehicle() || this.isLeashed()) {
             return false;
         }
 
@@ -1168,7 +1207,7 @@ public class RibbitEntity extends AgeableMob implements
     public boolean tryRestAtHomeBed() {
         if (this.level().isClientSide()
                 || this.homePositionSetByPlayer
-                || !this.level().isDarkOutside()
+                || !this.isShelterNight()
                 || this.isLeashed()
                 || this.isVehicle()
                 || !this.hasBedHomeNavigationTarget()) {
@@ -1916,7 +1955,7 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     private void debugNightBedSlotFailures(List<BedHomeSlotDebug> unavailableSlots) {
-        if (!SHELTER_DEBUG_LOGS || !this.level().isDarkOutside() || unavailableSlots.isEmpty()) {
+        if (!SHELTER_DEBUG_LOGS || !this.isShelterNight() || unavailableSlots.isEmpty()) {
             return;
         }
 
@@ -2207,6 +2246,14 @@ public class RibbitEntity extends AgeableMob implements
         return dx * dx + dz * dz <= horizontalDistance * horizontalDistance && dy <= verticalDistance;
     }
 
+    private String formatDistanceTo(Vec3 position) {
+        double dx = this.getX() - position.x;
+        double dz = this.getZ() - position.z;
+        double horizontalDistance = Math.sqrt(dx * dx + dz * dz);
+        double verticalDistance = Math.abs(this.getY() - position.y);
+        return String.format(Locale.ROOT, "h=%.2f/y=%.2f", horizontalDistance, verticalDistance);
+    }
+
     private void holdAtBedHome(BlockPos home) {
         Vec3 restPosition = this.getBedHomeRestPosition(home);
         this.getNavigation().stop();
@@ -2215,7 +2262,7 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     public void openNearbyShelterDoors() {
-        if (this.level().isClientSide() || !this.level().isDarkOutside() || !this.hasUsableHomePosition()) {
+        if (this.level().isClientSide() || !this.isShelterNight() || !this.hasUsableHomePosition()) {
             return;
         }
 
@@ -2284,7 +2331,7 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     private void tickBasicBedHomeState() {
-        if (!this.level().isDarkOutside()) {
+        if (!this.isShelterNight()) {
             this.pendingBedHomePosition = null;
             this.pendingBedHomeApproachPosition = null;
             this.activeBedHomeApproachPosition = null;
@@ -2328,7 +2375,7 @@ public class RibbitEntity extends AgeableMob implements
             return false;
         }
 
-        if (this.level().isDarkOutside() && this.hasUsableHomePosition()) {
+        if (this.isShelterNight() && this.hasUsableHomePosition()) {
             return true;
         }
 

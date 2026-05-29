@@ -42,7 +42,7 @@ public class RibbitStrollGoal extends RandomStrollGoal {
 
     @Override
     public boolean canUse() {
-        if (this.ribbit.level().isDarkOutside() && this.ribbit.hasUsableHomePosition()) {
+        if (this.ribbit.isShelterNight() && this.ribbit.hasUsableHomePosition()) {
             return false;
         }
 

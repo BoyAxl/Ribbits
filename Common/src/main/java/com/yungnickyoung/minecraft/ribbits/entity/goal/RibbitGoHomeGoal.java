@@ -32,7 +32,7 @@ public class RibbitGoHomeGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        if (!this.ribbit.level().isDarkOutside() || this.ribbit.isVehicle()) {
+        if (!this.ribbit.isShelterNight() || this.ribbit.isVehicle()) {
             return false;
         }
 
@@ -47,7 +47,7 @@ public class RibbitGoHomeGoal extends Goal {
     public boolean canContinueToUse() {
         BlockPos homePosition = this.ribbit.getShelterNavigationPosition();
         return homePosition != null
-                && this.ribbit.level().isDarkOutside()
+                && this.ribbit.isShelterNight()
                 && !this.ribbit.isVehicle()
                 && this.ribbit.hasUsableHomePosition()
                 && !this.isHomeReached(homePosition);

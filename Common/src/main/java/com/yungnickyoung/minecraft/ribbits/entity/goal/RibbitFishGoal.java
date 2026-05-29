@@ -73,13 +73,12 @@ public class RibbitFishGoal extends Goal {
     @Override
     public boolean isInterruptable() {
         return this.ticksFishing >= this.requiredFishTicks
-                || this.ribbit.level().isDarkOutside()
-                || !this.ribbit.level().isBrightOutside();
+                || !this.ribbit.isDayActivityTime();
     }
 
     @Override
     public boolean canUse() {
-        if (this.ribbit.level().isDarkOutside() || !this.ribbit.level().isBrightOutside()) {
+        if (!this.ribbit.isDayActivityTime()) {
             return false;
         }
 
@@ -159,7 +158,7 @@ public class RibbitFishGoal extends Goal {
             return false;
         }
 
-        if (this.ribbit.level().isDarkOutside() || !this.ribbit.level().isBrightOutside()) {
+        if (!this.ribbit.isDayActivityTime()) {
             return false;
         }
 

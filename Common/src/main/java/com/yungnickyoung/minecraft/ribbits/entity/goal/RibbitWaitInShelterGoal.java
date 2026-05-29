@@ -59,13 +59,17 @@ public class RibbitWaitInShelterGoal extends Goal {
             return;
         }
 
+        double speed = this.speedModifier * (this.ribbit.isInWater() ? RibbitEntity.WATER_SPEED_MULTIPLIER : 1.0F);
         if (this.ribbit.isAtNightShelterWaitPosition()) {
+            if (this.ribbit.tryFineApproachToNightShelterWaitPosition(speed)) {
+                return;
+            }
+
             this.ribbit.holdAtNightShelterWaitPosition();
             return;
         }
 
         Vec3 targetPosition = Vec3.atBottomCenterOf(waitPosition);
-        double speed = this.speedModifier * (this.ribbit.isInWater() ? RibbitEntity.WATER_SPEED_MULTIPLIER : 1.0F);
         this.ribbit.getNavigation().setSpeedModifier(speed);
 
         if (!waitPosition.equals(this.targetWaitPosition)) {

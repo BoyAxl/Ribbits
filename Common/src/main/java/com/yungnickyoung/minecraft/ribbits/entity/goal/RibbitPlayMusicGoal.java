@@ -60,7 +60,7 @@ public class RibbitPlayMusicGoal extends Goal {
             return false;
         }
 
-        if (this.ribbit.level().isDarkOutside()) {
+        if (!this.ribbit.isDayActivityTime()) {
             return false;
         }
 
@@ -86,7 +86,7 @@ public class RibbitPlayMusicGoal extends Goal {
             return false;
         }
 
-        if (this.ribbit.level().isDarkOutside()) {
+        if (!this.ribbit.isDayActivityTime()) {
             return false;
         }
 
@@ -140,7 +140,7 @@ public class RibbitPlayMusicGoal extends Goal {
 
     @Override
     public boolean isInterruptable() {
-        return this.ribbit.level().isDarkOutside() || this.resetRequested || this.isMasterTooFar() ||
+        return !this.ribbit.isDayActivityTime() || this.resetRequested || this.isMasterTooFar() ||
                 (this.ribbit.getLastHurtByMob() != null || this.ribbit.isFreezing() || this.ribbit.isOnFire()) ||
                 this.ribbit.getTicksPlayingMusic() > this.requiredPlayTicks;
     }

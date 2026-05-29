@@ -56,7 +56,7 @@ public class RibbitWaterCropsGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        if (this.ribbit.level().isDarkOutside() || this.ribbit.getBuffCooldown() > 0) {
+        if (!this.ribbit.isDayActivityTime() || this.ribbit.getBuffCooldown() > 0) {
             return false;
         }
 
