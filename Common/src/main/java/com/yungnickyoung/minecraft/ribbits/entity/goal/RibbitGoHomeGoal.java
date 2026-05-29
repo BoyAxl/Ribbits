@@ -11,6 +11,10 @@ import java.util.EnumSet;
 public class RibbitGoHomeGoal extends Goal {
     private static final int PATH_RETRY_TICKS = 40;
     private static final int STUCK_TICKS = 120;
+    private static final int BLOCKER_CHECK_START_TICKS = 40;
+    private static final int BLOCKER_CHECK_INTERVAL_TICKS = 20;
+    private static final int BLOCKER_YIELD_TICKS = 30;
+    private static final int NAVIGATION_PRIORITY_HOME = 2;
     private static final double MIN_PROGRESS_DISTANCE_SQR = 0.25D;
 
     private final RibbitEntity ribbit;
@@ -20,6 +24,7 @@ public class RibbitGoHomeGoal extends Goal {
     private BlockPos targetHome;
     private Vec3 targetPosition;
     private int nextPathAttemptTick;
+    private int nextBlockerCheckTick;
     private int ticksWithoutProgress;
     private double bestDistanceToTargetSqr;
 
@@ -133,6 +138,16 @@ public class RibbitGoHomeGoal extends Goal {
         }
 
         this.ticksWithoutProgress++;
+        if (this.ticksWithoutProgress >= BLOCKER_CHECK_START_TICKS
+                && this.ribbit.tickCount >= this.nextBlockerCheckTick) {
+            this.nextBlockerCheckTick = this.ribbit.tickCount + BLOCKER_CHECK_INTERVAL_TICKS;
+            if (this.ribbit.tryYieldToBlockingRibbit(navigationTarget, NAVIGATION_PRIORITY_HOME, "go_home")) {
+                this.nextPathAttemptTick = this.ribbit.tickCount + BLOCKER_YIELD_TICKS;
+                this.clearProgressTracking();
+                return;
+            }
+        }
+
         if (this.ticksWithoutProgress >= STUCK_TICKS) {
             this.ribbit.getNavigation().stop();
             this.ribbit.handleShelterPathFailed(homePosition, "stuck");
@@ -150,6 +165,7 @@ public class RibbitGoHomeGoal extends Goal {
         this.targetHome = null;
         this.targetPosition = null;
         this.nextPathAttemptTick = 0;
+        this.nextBlockerCheckTick = 0;
         this.clearProgressTracking();
     }
 

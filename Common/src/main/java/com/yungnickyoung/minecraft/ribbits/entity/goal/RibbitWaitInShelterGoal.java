@@ -11,6 +11,10 @@ import java.util.EnumSet;
 public class RibbitWaitInShelterGoal extends Goal {
     private static final int PATH_RETRY_TICKS = 40;
     private static final int STUCK_TICKS = 120;
+    private static final int BLOCKER_CHECK_START_TICKS = 40;
+    private static final int BLOCKER_CHECK_INTERVAL_TICKS = 20;
+    private static final int BLOCKER_YIELD_TICKS = 30;
+    private static final int NAVIGATION_PRIORITY_SHELTER_WAIT = 1;
     private static final double MIN_PROGRESS_DISTANCE_SQR = 0.25D;
 
     private final RibbitEntity ribbit;
@@ -18,6 +22,7 @@ public class RibbitWaitInShelterGoal extends Goal {
 
     private BlockPos targetWaitPosition;
     private int nextPathAttemptTick;
+    private int nextBlockerCheckTick;
     private int ticksWithoutProgress;
     private double bestDistanceToTargetSqr;
 
@@ -108,6 +113,16 @@ public class RibbitWaitInShelterGoal extends Goal {
         }
 
         this.ticksWithoutProgress++;
+        if (this.ticksWithoutProgress >= BLOCKER_CHECK_START_TICKS
+                && this.ribbit.tickCount >= this.nextBlockerCheckTick) {
+            this.nextBlockerCheckTick = this.ribbit.tickCount + BLOCKER_CHECK_INTERVAL_TICKS;
+            if (this.ribbit.tryYieldToBlockingRibbit(targetPosition, NAVIGATION_PRIORITY_SHELTER_WAIT, "night_shelter_wait")) {
+                this.nextPathAttemptTick = this.ribbit.tickCount + BLOCKER_YIELD_TICKS;
+                this.clearProgressTracking();
+                return;
+            }
+        }
+
         if (this.ticksWithoutProgress >= STUCK_TICKS) {
             this.ribbit.getNavigation().stop();
             this.ribbit.handleNightShelterWaitPathFailed("stuck");
@@ -124,6 +139,7 @@ public class RibbitWaitInShelterGoal extends Goal {
     private void clearTarget() {
         this.targetWaitPosition = null;
         this.nextPathAttemptTick = 0;
+        this.nextBlockerCheckTick = 0;
         this.clearProgressTracking();
     }
 

@@ -116,9 +116,9 @@ public class RibbitEntity extends AgeableMob implements
     private static final double BED_HOME_SNAP_VERTICAL_DISTANCE = 0.55D;
     private static final double BED_HOME_UPPER_BUNK_APPROACH_HORIZONTAL_DISTANCE = 0.85D;
     private static final double BED_HOME_UPPER_BUNK_APPROACH_VERTICAL_DISTANCE = 1.15D;
-    private static final double BED_HOME_UPPER_BUNK_ADJACENT_HORIZONTAL_DISTANCE = 0.85D;
-    private static final double BED_HOME_UPPER_BUNK_ADJACENT_VERTICAL_DISTANCE = 1.15D;
     private static final double BED_HOME_PARTIAL_PATH_MAX_HORIZONTAL_DISTANCE = 2.5D;
+    private static final double NAVIGATION_BLOCKER_SEARCH_DISTANCE = 0.85D;
+    private static final double NAVIGATION_BLOCKER_FORWARD_DOT = 0.2D;
     private static final double NIGHT_SHELTER_WAIT_REACHED_DISTANCE = 0.9D;
     private static final double NIGHT_SHELTER_WAIT_CENTER_HORIZONTAL_DISTANCE = 0.12D;
     private static final double NIGHT_SHELTER_WAIT_CENTER_VERTICAL_DISTANCE = 0.35D;
@@ -1048,6 +1048,81 @@ public class RibbitEntity extends AgeableMob implements
         return x * x + z * z <= distance * distance;
     }
 
+    public boolean tryYieldToBlockingRibbit(Vec3 navigationTarget, int navigationPriority, String context) {
+        if (this.level().isClientSide()) {
+            return false;
+        }
+
+        Vec3 toTarget = new Vec3(navigationTarget.x - this.getX(), 0.0D, navigationTarget.z - this.getZ());
+        double targetDistanceSqr = toTarget.lengthSqr();
+        if (targetDistanceSqr < 0.25D) {
+            return false;
+        }
+
+        Vec3 targetDirection = toTarget.normalize();
+        AABB searchBox = this.getBoundingBox().inflate(NAVIGATION_BLOCKER_SEARCH_DISTANCE, 0.15D, NAVIGATION_BLOCKER_SEARCH_DISTANCE);
+        Optional<RibbitEntity> blocker = this.level()
+                .getEntitiesOfClass(RibbitEntity.class, searchBox, this::isNavigationBlockerCandidate)
+                .stream()
+                .filter(other -> this.isBlockingNavigationTo(other, targetDirection, navigationPriority))
+                .min(Comparator.comparingDouble(other -> other.distanceToSqr(this)));
+
+        if (blocker.isEmpty()) {
+            return false;
+        }
+
+        RibbitEntity blockingRibbit = blocker.get();
+        this.getNavigation().stop();
+        this.debugShelter("yielding to blocking ribbit {} blocker={} context={} target={} priority={} blockerPriority={}",
+                this.getShelterDebugLabel(),
+                blockingRibbit.getShelterDebugLabel(),
+                context,
+                BlockPos.containing(navigationTarget),
+                navigationPriority,
+                blockingRibbit.getNavigationYieldPriority());
+        return true;
+    }
+
+    private boolean isNavigationBlockerCandidate(RibbitEntity other) {
+        if (other == this || !other.isAlive() || other.isVehicle() || other.isPassenger()) {
+            return false;
+        }
+
+        return !other.getNavigation().isDone() || other.getDeltaMovement().horizontalDistanceSqr() > 1.0E-4D;
+    }
+
+    private boolean isBlockingNavigationTo(RibbitEntity other, Vec3 targetDirection, int navigationPriority) {
+        Vec3 toOther = new Vec3(other.getX() - this.getX(), 0.0D, other.getZ() - this.getZ());
+        double otherDistanceSqr = toOther.lengthSqr();
+        if (otherDistanceSqr < 1.0E-4D || otherDistanceSqr > Mth.square(NAVIGATION_BLOCKER_SEARCH_DISTANCE)) {
+            return false;
+        }
+
+        double forwardDot = targetDirection.dot(toOther.normalize());
+        if (forwardDot < NAVIGATION_BLOCKER_FORWARD_DOT) {
+            return false;
+        }
+
+        int otherPriority = other.getNavigationYieldPriority();
+        if (otherPriority != navigationPriority) {
+            return navigationPriority < otherPriority;
+        }
+
+        return this.getUUID().compareTo(other.getUUID()) > 0;
+    }
+
+    private int getNavigationYieldPriority() {
+        if (this.hasUsableHomePosition()) {
+            return 2;
+        }
+
+        if (this.hasActiveNightShelterWait()) {
+            return 1;
+        }
+
+        return 0;
+    }
+
     public Vec3 getHomeNavigationTarget(BlockPos homePosition) {
         if (!this.homePositionSetByPlayer && this.isValidBedHomeSlot(homePosition)) {
             BlockPos approachPosition = this.getPreferredBedHomeApproachPosition(homePosition);
@@ -1220,18 +1295,16 @@ public class RibbitEntity extends AgeableMob implements
         }
 
         boolean reachedRestPosition = this.isCloseEnoughToBedHomeRestPosition(this.getBedHomeRestPosition(home));
-        boolean reachedBedHomeApproach = !reachedRestPosition && this.isNearBedHomeApproach(home);
-        boolean reachedUpperBunkApproach = !reachedRestPosition && !reachedBedHomeApproach && this.isNearUpperBunkBedHomeApproach(home);
-        boolean reachedUpperBunkAdjacent = !reachedRestPosition
+        boolean reachedBedHomeApproach = !reachedRestPosition && this.isNearBedHomeSlotApproach(home);
+        boolean reachedUpperBunkApproach = !reachedRestPosition
                 && !reachedBedHomeApproach
-                && !reachedUpperBunkApproach
-                && this.isNearUpperBunkBedHomeAdjacentPosition(home);
+                && this.isNearUpperBunkBedHomeApproach(home);
         boolean pendingBedHome = home.equals(this.pendingBedHomePosition);
-        if (!reachedRestPosition && !reachedBedHomeApproach && !reachedUpperBunkApproach && !reachedUpperBunkAdjacent) {
+        if (!reachedRestPosition && !reachedBedHomeApproach && !reachedUpperBunkApproach) {
             return false;
         }
 
-        if (reachedBedHomeApproach || reachedUpperBunkApproach || reachedUpperBunkAdjacent) {
+        if (reachedBedHomeApproach || reachedUpperBunkApproach) {
             this.debugShelter("bed approach accepted {} home={} approach={} part={} stack={}",
                     this.getShelterDebugLabel(),
                     home,
@@ -1789,7 +1862,11 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     private Set<BlockPos> getBedHomeApproachPositions(BlockPos bedSlot) {
-        return this.getRawBedHomeApproachPositions(bedSlot);
+        if (this.isUpperBunkBedHomeSlot(bedSlot)) {
+            return this.getUpperBunkBedHomeSnapApproachPositions(bedSlot);
+        }
+
+        return this.getBedHomeSlotAdjacentApproachPositions(bedSlot);
     }
 
     private Set<BlockPos> getValidBedHomeApproachPositions(BlockPos bedSlot) {
@@ -2169,16 +2246,12 @@ public class RibbitEntity extends AgeableMob implements
                 BED_HOME_SNAP_VERTICAL_DISTANCE);
     }
 
-    private boolean isNearBedHomeApproach(BlockPos bedSlot) {
-        BlockPos preferredApproachPosition = this.getPreferredBedHomeApproachPosition(bedSlot);
-        if (preferredApproachPosition != null) {
-            return this.isNearBlockCenter(
-                    preferredApproachPosition,
-                    BED_HOME_UPPER_BUNK_APPROACH_HORIZONTAL_DISTANCE,
-                    BED_HOME_UPPER_BUNK_APPROACH_VERTICAL_DISTANCE);
+    private boolean isNearBedHomeSlotApproach(BlockPos bedSlot) {
+        if (this.isUpperBunkBedHomeSlot(bedSlot)) {
+            return false;
         }
 
-        return this.getBedHomeApproachPositions(bedSlot).stream()
+        return this.getBedHomeSlotAdjacentApproachPositions(bedSlot).stream()
                 .filter(this::hasBedHomeApproachSpace)
                 .anyMatch(pos -> this.isNearBlockCenter(
                         pos,
@@ -2191,45 +2264,36 @@ public class RibbitEntity extends AgeableMob implements
             return false;
         }
 
-        return this.getBedHomeApproachPositions(bedSlot).stream()
+        return this.getUpperBunkBedHomeSnapApproachPositions(bedSlot).stream()
                 .anyMatch(pos -> this.isNearBlockCenter(
                         pos,
                         BED_HOME_UPPER_BUNK_APPROACH_HORIZONTAL_DISTANCE,
                         BED_HOME_UPPER_BUNK_APPROACH_VERTICAL_DISTANCE));
     }
 
-    private boolean isNearUpperBunkBedHomeAdjacentPosition(BlockPos bedSlot) {
-        if (!this.isUpperBunkBedHomeSlot(bedSlot)) {
-            return false;
+    private Set<BlockPos> getUpperBunkBedHomeSnapApproachPositions(BlockPos bedSlot) {
+        Set<BlockPos> approachPositions = new LinkedHashSet<>();
+        if (!this.isBedHomeSlot(bedSlot)) {
+            return approachPositions;
         }
 
-        return this.getUpperBunkBedHomeAdjacentPositions(bedSlot).stream()
-                .anyMatch(pos -> this.isNearBlockCenter(
-                        pos,
-                        BED_HOME_UPPER_BUNK_ADJACENT_HORIZONTAL_DISTANCE,
-                        BED_HOME_UPPER_BUNK_ADJACENT_VERTICAL_DISTANCE));
+        Direction bedFacing = this.level().getBlockState(bedSlot).getValue(BedBlock.FACING);
+        approachPositions.add(bedSlot.relative(bedFacing.getCounterClockWise()).immutable());
+        approachPositions.add(bedSlot.relative(bedFacing.getClockWise()).immutable());
+        return approachPositions;
     }
 
-    private Set<BlockPos> getUpperBunkBedHomeAdjacentPositions(BlockPos bedSlot) {
-        Set<BlockPos> positions = new LinkedHashSet<>();
+    private Set<BlockPos> getBedHomeSlotAdjacentApproachPositions(BlockPos bedSlot) {
+        Set<BlockPos> approachPositions = new LinkedHashSet<>();
         if (!this.isBedHomeSlot(bedSlot)) {
-            return positions;
+            return approachPositions;
         }
-
-        BlockState bedState = this.level().getBlockState(bedSlot);
-        Direction bedFacing = bedState.getValue(BedBlock.FACING);
-        BlockPos headPos = bedState.getValue(BedBlock.PART) == BedPart.HEAD
-                ? bedSlot
-                : bedSlot.relative(bedFacing);
-        BlockPos footPos = headPos.relative(bedFacing.getOpposite());
 
         for (Direction direction : Direction.Plane.HORIZONTAL) {
-            positions.add(bedSlot.relative(direction).below().immutable());
-            positions.add(headPos.relative(direction).below().immutable());
-            positions.add(footPos.relative(direction).below().immutable());
+            approachPositions.add(bedSlot.relative(direction).immutable());
         }
 
-        return positions;
+        return approachPositions;
     }
 
     private boolean isNearBlockCenter(BlockPos pos, double horizontalDistance, double verticalDistance) {
