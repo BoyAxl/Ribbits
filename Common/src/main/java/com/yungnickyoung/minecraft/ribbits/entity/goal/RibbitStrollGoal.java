@@ -42,7 +42,7 @@ public class RibbitStrollGoal extends RandomStrollGoal {
 
     @Override
     public boolean canUse() {
-        if (this.ribbit.isAutonomousAiPaused()) {
+        if (this.ribbit.isAutonomousAiPaused() || this.ribbit.isLocalNightShelterWaitActive()) {
             return false;
         }
 
@@ -57,7 +57,9 @@ public class RibbitStrollGoal extends RandomStrollGoal {
 
     @Override
     public boolean canContinueToUse() {
-        return !this.ribbit.isAutonomousAiPaused() && super.canContinueToUse();
+        return !this.ribbit.isAutonomousAiPaused()
+                && !this.ribbit.isLocalNightShelterWaitActive()
+                && super.canContinueToUse();
     }
 
     @Override

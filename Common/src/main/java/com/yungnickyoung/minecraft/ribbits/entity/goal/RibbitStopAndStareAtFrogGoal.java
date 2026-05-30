@@ -23,7 +23,7 @@ public class RibbitStopAndStareAtFrogGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        if (this.ribbit.isAutonomousAiPaused()) {
+        if (this.ribbit.isAutonomousAiPaused() || this.ribbit.isLocalNightShelterWaitActive()) {
             return false;
         }
 
@@ -44,6 +44,7 @@ public class RibbitStopAndStareAtFrogGoal extends Goal {
     public boolean canContinueToUse() {
         return this.followingFrog != null
                 && !this.ribbit.isAutonomousAiPaused()
+                && !this.ribbit.isLocalNightShelterWaitActive()
                 && !this.followingFrog.isInvisible()
                 && this.ribbit.hasLineOfSight(this.followingFrog)
                 && this.ribbit.distanceToSqr(this.followingFrog) <= (this.searchRadius * this.searchRadius);

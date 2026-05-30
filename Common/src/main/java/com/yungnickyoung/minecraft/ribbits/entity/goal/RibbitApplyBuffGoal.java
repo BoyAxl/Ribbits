@@ -47,7 +47,7 @@ public class RibbitApplyBuffGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        if (this.ribbit.isAutonomousAiPaused()) {
+        if (this.ribbit.isAutonomousAiPaused() || this.ribbit.isLocalNightShelterWaitActive()) {
             return false;
         }
 
@@ -57,7 +57,9 @@ public class RibbitApplyBuffGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
-        return !this.ribbit.isAutonomousAiPaused() && this.ticksSinceStart >= 0;
+        return !this.ribbit.isAutonomousAiPaused()
+                && !this.ribbit.isLocalNightShelterWaitActive()
+                && this.ticksSinceStart >= 0;
     }
 
     @Override
