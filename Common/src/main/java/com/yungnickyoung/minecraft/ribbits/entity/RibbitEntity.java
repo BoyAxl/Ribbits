@@ -556,6 +556,39 @@ public class RibbitEntity extends AgeableMob implements
         return bedHome.selectedHome().isPresent();
     }
 
+    public boolean tryAssignShelterHomeWhileWaiting() {
+        if (!this.isShelterNight()
+                || this.homePositionSetByPlayer
+                || this.isVehicle()
+                || this.isLeashed()
+                || !this.hasActiveNightShelterWait()
+                || this.hasUsableHomePosition()) {
+            return false;
+        }
+
+        if (this.pendingBedHomePosition != null) {
+            this.pendingBedHomePosition = null;
+            this.pendingBedHomeApproachPosition = null;
+            this.activeBedHomeApproachPosition = null;
+        }
+
+        BedHomeSearchResult bedHome = this.findNearbyBedHomeSlot(false);
+        if (bedHome.selectedHome().isEmpty()) {
+            return false;
+        }
+
+        BedHomePathSelection newHome = bedHome.selectedHome().get();
+        this.debugShelter("night shelter wait interrupted by bed {} slot={} approach={}",
+                this.getShelterDebugLabel(),
+                newHome.slot(),
+                newHome.approach());
+        this.clearNightCommunityAnchor();
+        this.clearNightShelterWait();
+        this.getNavigation().stop();
+        this.setPendingBedHome(newHome.slot(), newHome.approach());
+        return true;
+    }
+
     private boolean scheduleInitialBedHomeSearchIfNeeded() {
         if (this.initialBedHomeSearchScheduled
                 || this.nextBedHomeSearchTick > this.tickCount
@@ -1445,6 +1478,10 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     private BedHomeSearchResult findNearbyBedHomeSlot() {
+        return this.findNearbyBedHomeSlot(true);
+    }
+
+    private BedHomeSearchResult findNearbyBedHomeSlot(boolean markUnreachableCandidates) {
         Set<BlockPos> bedSlots = new LinkedHashSet<>();
         if (this.level() instanceof ServerLevel serverLevel) {
             PoiManager poiManager = serverLevel.getPoiManager();
@@ -1466,10 +1503,10 @@ public class RibbitEntity extends AgeableMob implements
         this.debugShelter("basic bed search sources {} poiSlots={}",
                 this.getShelterDebugLabel(),
                 sortedBedSlots.size());
-        return this.findNearbyBedHomeSlot(sortedBedSlots);
+        return this.findNearbyBedHomeSlot(sortedBedSlots, markUnreachableCandidates);
     }
 
-    private BedHomeSearchResult findNearbyBedHomeSlot(List<BlockPos> bedSlots) {
+    private BedHomeSearchResult findNearbyBedHomeSlot(List<BlockPos> bedSlots, boolean markUnreachableCandidates) {
         int occupiedSlots = 0;
         int pendingClaims = 0;
         int blockedSlots = 0;
@@ -1539,7 +1576,9 @@ public class RibbitEntity extends AgeableMob implements
 
         if (!pathCandidates.isEmpty()) {
             pathCandidates.forEach(candidate -> {
-                this.markBedHomePathRetry(candidate, "path_unreachable_batch");
+                if (markUnreachableCandidates) {
+                    this.markBedHomePathRetry(candidate, "path_unreachable_batch");
+                }
                 unavailableSlots.add(this.getBedHomeSlotDebug(candidate, "path_unreachable"));
             });
         }
