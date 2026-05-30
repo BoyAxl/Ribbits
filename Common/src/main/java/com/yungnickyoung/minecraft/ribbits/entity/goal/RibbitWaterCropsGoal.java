@@ -56,6 +56,10 @@ public class RibbitWaterCropsGoal extends Goal {
 
     @Override
     public boolean canUse() {
+        if (this.ribbit.isAutonomousAiPaused()) {
+            return false;
+        }
+
         if (!this.ribbit.isDayActivityTime() || this.ribbit.getBuffCooldown() > 0) {
             return false;
         }
@@ -72,6 +76,10 @@ public class RibbitWaterCropsGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
+        if (this.ribbit.isAutonomousAiPaused()) {
+            return false;
+        }
+
         // wateringTicks of -1 means the goal has been stopped
         if (this.wateringTicks < 0 || this.targetCropPos == null) return false;
 

@@ -47,6 +47,10 @@ public class RibbitPlayMusicGoal extends Goal {
 
     @Override
     public boolean canUse() {
+        if (this.ribbit.isAutonomousAiPaused()) {
+            return false;
+        }
+
         if (!this.isNitwit()) {
             return false;
         }
@@ -78,6 +82,10 @@ public class RibbitPlayMusicGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
+        if (this.ribbit.isAutonomousAiPaused()) {
+            return false;
+        }
+
         if (!this.isNitwit()) {
             return false;
         }

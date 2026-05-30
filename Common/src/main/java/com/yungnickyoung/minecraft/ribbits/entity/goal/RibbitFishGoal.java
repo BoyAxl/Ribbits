@@ -78,6 +78,10 @@ public class RibbitFishGoal extends Goal {
 
     @Override
     public boolean canUse() {
+        if (this.ribbit.isAutonomousAiPaused()) {
+            return false;
+        }
+
         if (!this.ribbit.isDayActivityTime()) {
             return false;
         }
@@ -154,6 +158,10 @@ public class RibbitFishGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
+        if (this.ribbit.isAutonomousAiPaused()) {
+            return false;
+        }
+
         if (this.waterPos == null || this.dryBlockPos == null || this.dryPos == null) {
             return false;
         }

@@ -42,11 +42,22 @@ public class RibbitStrollGoal extends RandomStrollGoal {
 
     @Override
     public boolean canUse() {
+        if (this.ribbit.isAutonomousAiPaused()) {
+            return false;
+        }
+
+        this.ribbit.clearAutomaticBedHomeIfTooFar();
+
         if (this.ribbit.isShelterNight() && this.ribbit.hasUsableHomePosition()) {
             return false;
         }
 
         return super.canUse();
+    }
+
+    @Override
+    public boolean canContinueToUse() {
+        return !this.ribbit.isAutonomousAiPaused() && super.canContinueToUse();
     }
 
     @Override

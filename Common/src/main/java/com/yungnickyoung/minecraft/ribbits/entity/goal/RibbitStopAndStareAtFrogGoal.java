@@ -23,6 +23,10 @@ public class RibbitStopAndStareAtFrogGoal extends Goal {
 
     @Override
     public boolean canUse() {
+        if (this.ribbit.isAutonomousAiPaused()) {
+            return false;
+        }
+
         List<Frog> nearbyFrogs = this.ribbit.level().getEntitiesOfClass(Frog.class, this.ribbit.getBoundingBox().inflate(this.searchRadius), target -> target instanceof Frog);
         if (!nearbyFrogs.isEmpty()) {
             for (Frog frog : nearbyFrogs) {
@@ -39,6 +43,7 @@ public class RibbitStopAndStareAtFrogGoal extends Goal {
     @Override
     public boolean canContinueToUse() {
         return this.followingFrog != null
+                && !this.ribbit.isAutonomousAiPaused()
                 && !this.followingFrog.isInvisible()
                 && this.ribbit.hasLineOfSight(this.followingFrog)
                 && this.ribbit.distanceToSqr(this.followingFrog) <= (this.searchRadius * this.searchRadius);

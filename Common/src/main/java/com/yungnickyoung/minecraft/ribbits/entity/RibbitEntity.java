@@ -27,8 +27,6 @@ import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
-import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
-import net.minecraft.world.entity.ai.goal.PanicGoal;
 import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.entity.ai.village.poi.PoiManager;
@@ -103,6 +101,7 @@ public class RibbitEntity extends AgeableMob implements
     private static final int BED_HOME_PATH_RETRY_MAX_TICKS = 400;
     private static final int BED_HOME_MAX_PATH_FAILURES = 3;
     private static final int BED_HOME_UPPER_BUNK_MAX_PATH_FAILURES = 6;
+    private static final int AUTOMATIC_BED_HOME_MAX_DISTANCE = 128;
     private static final int BED_HOME_VERTICAL_RANGE = 12;
     private static final int BED_HOME_BASIC_FLOOR_VERTICAL_DISTANCE = 3;
     private static final int BED_HOME_DEBUG_MAX_SLOT_DETAILS = 16;
@@ -127,7 +126,9 @@ public class RibbitEntity extends AgeableMob implements
     private static final double DOOR_CLOSE_FORGET_DISTANCE = 3.0D;
     private static final double DOOR_HOLD_FOR_OTHER_RIBBITS_DISTANCE = 2.0D;
     private static final double DEFAULT_STEP_HEIGHT = 0.6D;
-    private static final boolean SHELTER_DEBUG_LOGS = false;
+    private static final int LEASH_REST_STILL_TICKS = 100;
+    private static final double LEASH_REST_MOVING_DISTANCE_SQR = 0.0025D;
+    private static final boolean SHELTER_DEBUG_LOGS = true;
 
     private static final EntityDimensions RESTING_DIMENSIONS = EntityDimensions.scalable(0.5F, 0.4F).withEyeHeight(0.25F);
 
@@ -203,6 +204,8 @@ public class RibbitEntity extends AgeableMob implements
     private BlockPos nightCommunityAnchorPosition;
     private BlockPos nightShelterWaitPosition;
     private boolean nightShelterWaitReached;
+    private int leashStillTicks;
+    private boolean autonomousAiPausedLastTick;
     private final Set<BlockPos> shelterDoorsToClose = new HashSet<>();
     @Nullable
     private Node lastCheckedDoorNode;
@@ -251,9 +254,9 @@ public class RibbitEntity extends AgeableMob implements
         this.goalSelector.addGoal(0, new FloatGoal(this));
         this.goalSelector.addGoal(1, new RibbitGoHomeGoal(this, 1.8f, 1f));
         this.goalSelector.addGoal(1, new RibbitWaitInShelterGoal(this, 1.0D));
-        this.goalSelector.addGoal(2, new PanicGoal(this, 1.5D));
+        this.goalSelector.addGoal(2, new RibbitPanicGoal(this, 1.5D));
         this.goalSelector.addGoal(3, new RibbitStopAndStareAtFrogGoal(this, 4.0F));
-        this.goalSelector.addGoal(4, new LookAtPlayerGoal(this, Player.class, 8.0F));
+        this.goalSelector.addGoal(4, new RibbitLookAtPlayerGoal(this, Player.class, 8.0F));
         this.goalSelector.addGoal(5, new RibbitStrollGoal(this, 1.0D, 16));
     }
 
@@ -289,11 +292,15 @@ public class RibbitEntity extends AgeableMob implements
                 this.restock();
             }
 
-            this.tryRestAtHomeBed();
-            this.tickDoorNavigationAssist();
-            this.tickShelterDoors();
-            this.tickFloatingPlantNavigationAssist();
-            this.tickBasicBedHomeState();
+            this.tickAutonomousAiPauseState();
+            if (!this.isAutonomousAiPaused()) {
+                this.clearAutomaticBedHomeIfTooFar();
+                this.tryRestAtHomeBed();
+                this.tickDoorNavigationAssist();
+                this.tickShelterDoors();
+                this.tickFloatingPlantNavigationAssist();
+                this.tickBasicBedHomeState();
+            }
             this.updateRestingPoseState();
         }
     }
@@ -492,10 +499,88 @@ public class RibbitEntity extends AgeableMob implements
         this.getNavigation().stop();
     }
 
+    public boolean isAutonomousAiPaused() {
+        return this.isPassenger() || this.isLeashed();
+    }
+
+    private void tickAutonomousAiPauseState() {
+        boolean paused = this.isAutonomousAiPaused();
+        if (paused && !this.autonomousAiPausedLastTick) {
+            this.debugShelter("autonomous ai paused {} passenger={} vehicle={} leashed={} home={} manualHome={} automaticBedHome={} pos={}",
+                    this.getShelterDebugLabel(),
+                    this.isPassenger(),
+                    this.getVehicle(),
+                    this.isLeashed(),
+                    this.homePosition,
+                    this.homePositionSetByPlayer,
+                    this.homePositionIsAutomaticBed,
+                    this.blockPosition());
+            this.pauseAutonomousActions();
+        } else if (!paused && this.autonomousAiPausedLastTick) {
+            this.debugShelter("autonomous ai resumed {} home={} manualHome={} automaticBedHome={} pos={}",
+                    this.getShelterDebugLabel(),
+                    this.homePosition,
+                    this.homePositionSetByPlayer,
+                    this.homePositionIsAutomaticBed,
+                    this.blockPosition());
+        }
+
+        this.autonomousAiPausedLastTick = paused;
+        this.tickLeashRestState();
+    }
+
+    private void pauseAutonomousActions() {
+        this.pendingBedHomePosition = null;
+        this.pendingBedHomeApproachPosition = null;
+        this.activeBedHomeApproachPosition = null;
+        this.clearNightShelterWait();
+        this.clearNightCommunityAnchor();
+        this.unreachableBedHomeRetries.clear();
+        this.clearAutomaticBedHomePathFailures();
+        this.resetHomeRelatedGoals(false);
+        this.setUmbrellaFalling(false);
+        this.setBuffing(false);
+    }
+
+    private void tickLeashRestState() {
+        if (!this.isLeashed() || this.isPassenger()) {
+            this.leashStillTicks = 0;
+            return;
+        }
+
+        if (this.getNavigation().isDone()
+                && this.getDeltaMovement().horizontalDistanceSqr() <= LEASH_REST_MOVING_DISTANCE_SQR) {
+            this.leashStillTicks++;
+            if (this.leashStillTicks == LEASH_REST_STILL_TICKS) {
+                this.debugShelter("leash rest ready {} stillTicks={} pos={} delta={}",
+                        this.getShelterDebugLabel(),
+                        this.leashStillTicks,
+                        this.blockPosition(),
+                        this.getDeltaMovement());
+            }
+        } else {
+            if (this.leashStillTicks >= LEASH_REST_STILL_TICKS) {
+                this.debugShelter("leash rest interrupted {} stillTicks={} pos={} delta={} navigationDone={}",
+                        this.getShelterDebugLabel(),
+                        this.leashStillTicks,
+                        this.blockPosition(),
+                        this.getDeltaMovement(),
+                        this.getNavigation().isDone());
+            }
+            this.leashStillTicks = 0;
+        }
+    }
+
+    private boolean shouldRestWhileLeashed() {
+        return this.isLeashed() && this.leashStillTicks >= LEASH_REST_STILL_TICKS;
+    }
+
     public boolean tryAssignShelterHome() {
-        if (!this.isShelterNight() || this.homePositionSetByPlayer) {
+        if (!this.isShelterNight() || this.homePositionSetByPlayer || this.isAutonomousAiPaused()) {
             return false;
         }
+
+        this.clearAutomaticBedHomeIfTooFar();
 
         if (this.hasActiveNightShelterWait()) {
             if (!this.isNightShelterWaitReadyToRetry()) {
@@ -559,6 +644,7 @@ public class RibbitEntity extends AgeableMob implements
     public boolean tryAssignShelterHomeWhileWaiting() {
         if (!this.isShelterNight()
                 || this.homePositionSetByPlayer
+                || this.isAutonomousAiPaused()
                 || this.isVehicle()
                 || this.isLeashed()
                 || !this.hasActiveNightShelterWait()
@@ -877,6 +963,7 @@ public class RibbitEntity extends AgeableMob implements
 
     public boolean canUseNightShelterWait() {
         return this.isShelterNight()
+                && !this.isAutonomousAiPaused()
                 && !this.isVehicle()
                 && !this.isLeashed()
                 && !this.hasUsableHomePosition()
@@ -975,11 +1062,32 @@ public class RibbitEntity extends AgeableMob implements
         }
 
         if (this.getResting() != shouldRest) {
+            this.debugShelter("rest pose changed {} resting={} passenger={} leashed={} leashStillTicks={} shelterNight={} home={} waitPos={} fishing={} watering={} playing={} buffing={}",
+                    this.getShelterDebugLabel(),
+                    shouldRest,
+                    this.isPassenger(),
+                    this.isLeashed(),
+                    this.leashStillTicks,
+                    this.isShelterNight(),
+                    this.homePosition,
+                    this.nightShelterWaitPosition,
+                    this.getFishing(),
+                    this.getWatering(),
+                    this.getPlayingInstrument(),
+                    this.getBuffing());
             this.setResting(shouldRest);
         }
     }
 
     private boolean shouldUseRestingPose() {
+        if (this.isPassenger()) {
+            return true;
+        }
+
+        if (this.shouldRestWhileLeashed()) {
+            return true;
+        }
+
         if (!this.isShelterNight()
                 || this.isVehicle()
                 || this.isLeashed()
@@ -1050,7 +1158,7 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     private boolean canUpdateGroundNavigationNow() {
-        return this.onGround() || this.isInLiquid() || this.isPassenger();
+        return !this.isAutonomousAiPaused() && (this.onGround() || this.isInLiquid());
     }
 
     public void handleNightShelterWaitPathFailed(String reason) {
@@ -1099,6 +1207,42 @@ public class RibbitEntity extends AgeableMob implements
     public boolean hasBedHomeNavigationTarget() {
         return !this.homePositionSetByPlayer
                 && (this.hasValidAutomaticBedHome() || this.hasValidPendingBedHome());
+    }
+
+    public boolean clearAutomaticBedHomeIfTooFar() {
+        if (this.level().isClientSide()
+                || this.homePositionSetByPlayer
+                || !this.homePositionIsAutomaticBed
+                || this.homePosition == null
+                || !this.isAutomaticBedHomeTooFar()) {
+            return false;
+        }
+
+        this.releaseAutomaticBedHome("too_far");
+        return true;
+    }
+
+    private boolean isAutomaticBedHomeTooFar() {
+        if (!this.homePositionIsAutomaticBed || this.homePosition == null) {
+            return false;
+        }
+
+        double maxDistance = AUTOMATIC_BED_HOME_MAX_DISTANCE;
+        return this.homePosition.distSqr(this.blockPosition()) > maxDistance * maxDistance;
+    }
+
+    private void releaseAutomaticBedHome(String reason) {
+        this.debugShelter("automatic bed released {} home={} reason={} distanceSqr={}",
+                this.getShelterDebugLabel(),
+                this.homePosition,
+                reason,
+                this.homePosition == null ? null : this.homePosition.distSqr(this.blockPosition()));
+        this.homePosition = null;
+        this.homePositionIsAutomaticBed = false;
+        this.activeBedHomeApproachPosition = null;
+        this.scheduleNextBedHomeSearch();
+        this.clearAutomaticBedHomePathFailures();
+        this.resetHomeRelatedGoals(false);
     }
 
     public boolean isBedHomeNavigationTarget(@Nullable BlockPos pos) {
@@ -1158,7 +1302,7 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     public boolean shouldLeaveUpperShelter() {
-        if (this.isShelterNight() || this.isVehicle() || this.isLeashed()) {
+        if (this.isShelterNight() || this.isAutonomousAiPaused() || this.isVehicle() || this.isLeashed()) {
             return false;
         }
 
@@ -1369,9 +1513,23 @@ public class RibbitEntity extends AgeableMob implements
                 homePosition.equals(this.pendingBedHomePosition),
                 homePosition.equals(this.homePosition) && this.homePositionIsAutomaticBed,
                 homePosition.distSqr(this.blockPosition()));
-        this.markBedHomePathRetry(homePosition, reason);
+        boolean blockedForNight = this.markBedHomePathRetry(homePosition, reason);
 
         if (homePosition.equals(this.pendingBedHomePosition)) {
+            if (!blockedForNight) {
+                this.debugShelter("pending bed retained {} home={} reason={} blockedForNight={}",
+                        this.getShelterDebugLabel(),
+                        homePosition,
+                        reason,
+                        false);
+                return;
+            }
+
+            this.debugShelter("pending bed released {} home={} reason={} blockedForNight={}",
+                    this.getShelterDebugLabel(),
+                    homePosition,
+                    reason,
+                    true);
             this.pendingBedHomePosition = null;
             this.pendingBedHomeApproachPosition = null;
             this.activeBedHomeApproachPosition = null;
@@ -1436,6 +1594,7 @@ public class RibbitEntity extends AgeableMob implements
                 || this.homePositionSetByPlayer
                 || !this.isShelterNight()
                 || this.isLeashed()
+                || this.isAutonomousAiPaused()
                 || this.isVehicle()
                 || !this.hasBedHomeNavigationTarget()) {
             return false;
@@ -2125,16 +2284,12 @@ public class RibbitEntity extends AgeableMob implements
 
     private double getBedHomeApproachBoxMinY(BlockPos pos, @Nullable BlockPos bedSlot) {
         if (bedSlot != null
-                && this.canUseLowWalkableBedHomeApproachSurface(bedSlot)
+                && this.isLowerBunkBedHomeSlot(bedSlot)
                 && this.isLowWalkableBedHomeApproachSurface(pos)) {
             return this.getSupportSurfaceY(pos) + 0.001D;
         }
 
         return pos.getY() + 0.001D;
-    }
-
-    private boolean canUseLowWalkableBedHomeApproachSurface(BlockPos bedSlot) {
-        return this.isLowerBunkBedHomeSlot(bedSlot) || !this.isStackedBedHomeSlot(bedSlot);
     }
 
     private boolean isLowWalkableBedHomeApproachSurface(BlockPos pos) {
@@ -2170,7 +2325,7 @@ public class RibbitEntity extends AgeableMob implements
         return false;
     }
 
-    private void markBedHomePathRetry(BlockPos bedSlot, String reason) {
+    private boolean markBedHomePathRetry(BlockPos bedSlot, String reason) {
         BlockPos immutableBedSlot = bedSlot.immutable();
         BedHomePathRetry retry = this.unreachableBedHomeRetries.get(immutableBedSlot);
         if (retry == null || (!retry.isBlockedForNight() && !retry.isStillValid(this.tickCount))) {
@@ -2186,6 +2341,7 @@ public class RibbitEntity extends AgeableMob implements
                 retry.nextScheduledAttemptTick(),
                 retry.failuresWithoutProgress(),
                 blockedForNight);
+        return blockedForNight;
     }
 
     private void clearExpiredBedHomePathRetries() {
@@ -2264,7 +2420,9 @@ public class RibbitEntity extends AgeableMob implements
 
     private boolean hasValidAutomaticBedHome() {
         BlockPos home = this.getHomePosition();
-        return this.isAutomaticBedHomeRaw() && !this.hasHigherPriorityCommittedBedHomeClaim(home);
+        return this.isAutomaticBedHomeRaw()
+                && !this.isAutomaticBedHomeTooFar()
+                && !this.hasHigherPriorityCommittedBedHomeClaim(home);
     }
 
     private boolean hasCommittedShelterHome() {

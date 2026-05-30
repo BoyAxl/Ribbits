@@ -47,13 +47,17 @@ public class RibbitApplyBuffGoal extends Goal {
 
     @Override
     public boolean canUse() {
+        if (this.ribbit.isAutonomousAiPaused()) {
+            return false;
+        }
+
         ServerLevel serverLevel = getServerLevel(this.ribbit.level());
         return this.ribbit.getBuffCooldown() == 0 && !this.getNearbyPlayers(serverLevel).isEmpty();
     }
 
     @Override
     public boolean canContinueToUse() {
-        return this.ticksSinceStart >= 0;
+        return !this.ribbit.isAutonomousAiPaused() && this.ticksSinceStart >= 0;
     }
 
     @Override
@@ -80,6 +84,7 @@ public class RibbitApplyBuffGoal extends Goal {
     @Override
     public void stop() {
         this.ribbit.setBuffCooldown(this.cooldownTicks);
+        this.ribbit.setBuffing(false);
         this.ticksSinceStart = 0;
     }
 
