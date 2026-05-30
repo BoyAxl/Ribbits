@@ -3573,6 +3573,51 @@
           }
         }
       },
+      "resting_fisherman": {
+        "loop": true,
+        "animation_length": 1.52,
+        "bones": {
+          "main": {
+            "position": {
+              "vector": [0, -2, -1.4]
+            }
+          },
+          "body": {
+            "rotation": {
+              "vector": [0, 0, 0]
+            }
+          },
+          "fishing_rod": {
+            "rotation": {
+              "vector": [126.8521, 88.9046, 149.5484]
+            },
+            "position": {
+              "vector": [2.4, -1.6, 9]
+            }
+          },
+          "fishing_rod_2": {
+            "rotation": {
+              "vector": [-22, 0, 0]
+            }
+          },
+          "right_leg": {
+            "rotation": {
+              "vector": [-90, 12.5, 5]
+            },
+            "position": {
+              "vector": [0, 0.7, -3]
+            }
+          },
+          "left_leg": {
+            "rotation": {
+              "vector": [-90, -12.5, -5]
+            },
+            "position": {
+              "vector": [0, 0.7, -3]
+            }
+          }
+        }
+      },
       "fishing": {
         "loop": true,
         "animation_length": 1.52,

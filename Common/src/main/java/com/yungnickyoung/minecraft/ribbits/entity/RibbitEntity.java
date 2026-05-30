@@ -148,6 +148,7 @@ public class RibbitEntity extends AgeableMob implements
     private static final RawAnimation FISH = RawAnimation.begin().thenPlay("fishing");
     private static final RawAnimation FISH_HOLDING = RawAnimation.begin().thenPlay("fishing_holding");
     private static final RawAnimation REST = RawAnimation.begin().thenPlay("resting");
+    private static final RawAnimation REST_FISHERMAN = RawAnimation.begin().thenPlay("resting_fisherman");
     private static final RawAnimation WATER_CROPS = RawAnimation.begin().thenPlay("water_crops");
     private static final RawAnimation WATER_CROPS_HOLDING = RawAnimation.begin().thenPlay("water_crops_holding");
     private static final RawAnimation FALLING = RawAnimation.begin().thenPlay("ribbit_fall");
@@ -3210,7 +3211,7 @@ public class RibbitEntity extends AgeableMob implements
                     this.getRibbitData().getProfession() == RibbitProfessionModule.FISHERMAN ? FALLING_FISHERMAN : FALLING
             );
         } else if (getResting()) {
-            controller.setAnimation(REST);
+            controller.setAnimation(this.getRibbitData().getProfession() == RibbitProfessionModule.FISHERMAN ? REST_FISHERMAN : REST);
         } else if (getPlayingInstrument() && this.getRibbitData().getInstrument() != RibbitInstrumentModule.NONE) {
             controller.setAnimation(RawAnimation.begin().thenPlay(this.getRibbitData().getInstrument().animationName()));
         } else if (getBuffing()) {
