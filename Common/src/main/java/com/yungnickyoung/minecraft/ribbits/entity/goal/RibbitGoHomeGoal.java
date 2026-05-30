@@ -76,7 +76,6 @@ public class RibbitGoHomeGoal extends Goal {
     @Override
     public void tick() {
         this.ribbit.tryAssignShelterHome();
-        this.ribbit.openNearbyShelterDoors();
 
         if (this.ribbit.tryRestAtHomeBed()) {
             return;

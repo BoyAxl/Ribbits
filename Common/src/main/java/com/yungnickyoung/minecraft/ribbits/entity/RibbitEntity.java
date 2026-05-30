@@ -123,9 +123,9 @@ public class RibbitEntity extends AgeableMob implements
     private static final double NIGHT_SHELTER_WAIT_CENTER_HORIZONTAL_DISTANCE = 0.12D;
     private static final double NIGHT_SHELTER_WAIT_CENTER_VERTICAL_DISTANCE = 0.35D;
     private static final double FLOATING_PLANT_NAVIGATION_NODE_REACHED_DISTANCE = 0.65D;
-    private static final double SHELTER_DOOR_REACH_DISTANCE = 1.75D;
-    private static final double SHELTER_DOOR_HOLD_DISTANCE = 2.25D;
-    private static final int SHELTER_DOOR_OPEN_HOLD_TICKS = 60;
+    private static final int DOOR_INTERACT_NODE_COOLDOWN_TICKS = 20;
+    private static final double DOOR_CLOSE_FORGET_DISTANCE = 3.0D;
+    private static final double DOOR_HOLD_FOR_OTHER_RIBBITS_DISTANCE = 2.0D;
     private static final double DEFAULT_STEP_HEIGHT = 0.6D;
     private static final boolean SHELTER_DEBUG_LOGS = false;
 
@@ -203,7 +203,9 @@ public class RibbitEntity extends AgeableMob implements
     private BlockPos nightShelterWaitPosition;
     private boolean nightShelterWaitReached;
     private final Set<BlockPos> shelterDoorsToClose = new HashSet<>();
-    private final Map<BlockPos, Integer> shelterDoorHoldUntilTicks = new HashMap<>();
+    @Nullable
+    private Node lastCheckedDoorNode;
+    private int remainingDoorNodeCooldown;
     private final Map<BlockPos, BedHomePathRetry> unreachableBedHomeRetries = new HashMap<>();
 
     /**
@@ -2083,12 +2085,16 @@ public class RibbitEntity extends AgeableMob implements
 
     private double getBedHomeApproachBoxMinY(BlockPos pos, @Nullable BlockPos bedSlot) {
         if (bedSlot != null
-                && this.isLowerBunkBedHomeSlot(bedSlot)
+                && this.canUseLowWalkableBedHomeApproachSurface(bedSlot)
                 && this.isLowWalkableBedHomeApproachSurface(pos)) {
             return this.getSupportSurfaceY(pos) + 0.001D;
         }
 
         return pos.getY() + 0.001D;
+    }
+
+    private boolean canUseLowWalkableBedHomeApproachSurface(BlockPos bedSlot) {
+        return this.isLowerBunkBedHomeSlot(bedSlot) || !this.isStackedBedHomeSlot(bedSlot);
     }
 
     private boolean isLowWalkableBedHomeApproachSurface(BlockPos pos) {
@@ -2511,58 +2517,35 @@ public class RibbitEntity extends AgeableMob implements
         this.setPos(restPosition.x, restPosition.y, restPosition.z);
     }
 
-    public void openNearbyShelterDoors() {
-        if (this.level().isClientSide() || !this.isShelterNight() || !this.hasUsableHomePosition()) {
+    private void tickDoorNavigationAssist() {
+        Path path = this.getNavigation().getPath();
+        if (path == null || path.notStarted() || path.isDone()) {
+            this.lastCheckedDoorNode = null;
+            this.remainingDoorNodeCooldown = 0;
             return;
         }
 
-        BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();
-        BlockPos origin = this.blockPosition();
-
-        for (int y = -1; y <= 2; y++) {
-            for (int x = -2; x <= 2; x++) {
-                for (int z = -2; z <= 2; z++) {
-                    mutablePos.set(origin.getX() + x, origin.getY() + y, origin.getZ() + z);
-                    this.setShelterDoorOpen(mutablePos, true);
-                }
-            }
+        Node nextNode = path.getNextNode();
+        if (nextNode.equals(this.lastCheckedDoorNode)) {
+            this.remainingDoorNodeCooldown = DOOR_INTERACT_NODE_COOLDOWN_TICKS;
+        } else if (this.remainingDoorNodeCooldown-- > 0) {
+            return;
         }
+
+        this.lastCheckedDoorNode = nextNode;
+        Node previousNode = path.getPreviousNode();
+        this.openShelterDoorAtPathNode(previousNode);
+        this.openShelterDoorAtPathNode(nextNode);
+        this.closeShelterDoorsThatHaveBeenPassedThrough(previousNode, nextNode);
     }
 
-    private void tickDoorNavigationAssist() {
-        Path path = this.getNavigation().getPath();
-        if (path != null && !path.isDone()) {
-            int start = Math.max(0, path.getNextNodeIndex() - 1);
-            int end = Math.min(path.getNextNodeIndex() + 2, path.getNodeCount() - 1);
-            for (int i = start; i <= end; i++) {
-                Node node = path.getNode(i);
-                this.openShelterDoorAtPathNode(node.asBlockPos());
-            }
+    private void openShelterDoorAtPathNode(@Nullable Node node) {
+        if (node == null) {
+            return;
         }
 
-        if (this.horizontalCollision || (path != null && !path.isDone())) {
-            this.openNearbyNavigationDoors();
-        }
-    }
-
-    private void openShelterDoorAtPathNode(BlockPos pos) {
+        BlockPos pos = node.asBlockPos();
         this.setShelterDoorOpen(pos, true);
-        this.setShelterDoorOpen(pos.above(), true);
-        this.setShelterDoorOpen(pos.below(), true);
-    }
-
-    private void openNearbyNavigationDoors() {
-        BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();
-        BlockPos origin = this.blockPosition();
-
-        for (int y = -1; y <= 2; y++) {
-            for (int x = -1; x <= 1; x++) {
-                for (int z = -1; z <= 1; z++) {
-                    mutablePos.set(origin.getX() + x, origin.getY() + y, origin.getZ() + z);
-                    this.setShelterDoorOpen(mutablePos, true);
-                }
-            }
-        }
     }
 
     private void tickShelterDoors() {
@@ -2570,12 +2553,37 @@ public class RibbitEntity extends AgeableMob implements
             return;
         }
 
+        Path path = this.getNavigation().getPath();
+        Node previousNode = path == null || path.isDone() ? null : path.getPreviousNode();
+        Node nextNode = path == null || path.isDone() ? null : path.getNextNode();
+        this.closeShelterDoorsThatHaveBeenPassedThrough(previousNode, nextNode);
+    }
+
+    private void closeShelterDoorsThatHaveBeenPassedThrough(@Nullable Node movingFromNode, @Nullable Node movingToNode) {
         this.shelterDoorsToClose.removeIf(pos -> {
-            if (this.shouldKeepShelterDoorOpen(pos)) {
+            if (this.isShelterDoorPathNode(pos, movingFromNode) || this.isShelterDoorPathNode(pos, movingToNode)) {
                 return false;
             }
 
-            this.setShelterDoorOpen(pos, false);
+            if (this.isShelterDoorTooFarAway(pos)) {
+                return true;
+            }
+
+            BlockState state = this.level().getBlockState(pos);
+            if (!this.isMobInteractableDoor(state)) {
+                return true;
+            }
+
+            DoorBlock door = (DoorBlock) state.getBlock();
+            if (!door.isOpen(state)) {
+                return true;
+            }
+
+            if (this.areOtherRibbitsComingThroughDoor(pos)) {
+                return true;
+            }
+
+            door.setOpen(this, this.level(), state, pos, false);
             return true;
         });
     }
@@ -2604,38 +2612,14 @@ public class RibbitEntity extends AgeableMob implements
         }
     }
 
-    private boolean shouldKeepShelterDoorOpen(BlockPos pos) {
-        Integer holdUntilTick = this.shelterDoorHoldUntilTicks.get(pos);
-        if (holdUntilTick != null) {
-            if (this.tickCount <= holdUntilTick) {
-                return true;
-            }
-
-            this.shelterDoorHoldUntilTicks.remove(pos);
-        }
-
+    private boolean areOtherRibbitsComingThroughDoor(BlockPos doorPos) {
         return !this.level().getEntitiesOfClass(
                 RibbitEntity.class,
-                new AABB(pos).inflate(SHELTER_DOOR_HOLD_DISTANCE, 1.0D, SHELTER_DOOR_HOLD_DISTANCE),
-                ribbit -> ribbit.isAlive() && ribbit.shouldHoldShelterDoorOpen(pos)).isEmpty();
-    }
-
-    private boolean shouldHoldShelterDoorOpen(BlockPos doorPos) {
-        if (!this.isCloseToShelterDoor(doorPos)) {
-            return false;
-        }
-
-        if (this.isShelterNight() && this.hasUsableHomePosition()) {
-            return true;
-        }
-
-        return this.horizontalCollision || this.isPathingThroughShelterDoor(doorPos);
-    }
-
-    private boolean isCloseToShelterDoor(BlockPos doorPos) {
-        return this.getBoundingBox()
-                .inflate(SHELTER_DOOR_HOLD_DISTANCE, 1.0D, SHELTER_DOOR_HOLD_DISTANCE)
-                .intersects(new AABB(doorPos));
+                new AABB(doorPos).inflate(DOOR_HOLD_FOR_OTHER_RIBBITS_DISTANCE),
+                ribbit -> ribbit != this
+                        && ribbit.isAlive()
+                        && doorPos.closerToCenterThan(ribbit.position(), DOOR_HOLD_FOR_OTHER_RIBBITS_DISTANCE)
+                        && ribbit.isPathingThroughShelterDoor(doorPos)).isEmpty();
     }
 
     private boolean isPathingThroughShelterDoor(BlockPos doorPos) {
@@ -2644,58 +2628,58 @@ public class RibbitEntity extends AgeableMob implements
             return false;
         }
 
-        int start = Math.max(0, path.getNextNodeIndex() - 1);
-        int end = Math.min(path.getNextNodeIndex() + 2, path.getNodeCount() - 1);
-        for (int i = start; i <= end; i++) {
-            if (this.isShelterDoorPathNode(doorPos, path.getNode(i).asBlockPos())) {
-                return true;
-            }
-        }
+        return this.isShelterDoorPathNode(doorPos, path.getPreviousNode())
+                || this.isShelterDoorPathNode(doorPos, path.getNextNode());
+    }
 
-        return false;
+    private boolean isShelterDoorPathNode(BlockPos doorPos, @Nullable Node node) {
+        return node != null && this.isShelterDoorPathNode(doorPos, node.asBlockPos());
     }
 
     private boolean isShelterDoorPathNode(BlockPos doorPos, BlockPos nodePos) {
-        return doorPos.getX() == nodePos.getX()
-                && doorPos.getZ() == nodePos.getZ()
-                && Math.abs(doorPos.getY() - nodePos.getY()) <= 1;
+        BlockPos nodeDoorPos = this.getMobInteractableDoorPos(nodePos);
+        return nodeDoorPos != null && nodeDoorPos.equals(doorPos);
     }
 
     private void setShelterDoorOpen(BlockPos pos, boolean open) {
-        BlockState blockState = this.level().getBlockState(pos);
-        if (!(blockState.getBlock() instanceof DoorBlock)) {
-            return;
-        }
-
-        BlockPos doorPos = this.getLowerShelterDoorPos(pos, blockState);
-        if (open && !this.canReachShelterDoor(doorPos)) {
+        BlockPos doorPos = this.getMobInteractableDoorPos(pos);
+        if (doorPos == null) {
             return;
         }
 
         BlockState doorState = this.level().getBlockState(doorPos);
-        if (!(doorState.getBlock() instanceof DoorBlock doorBlock)
-                || !doorBlock.type().canOpenByHand()
-                || doorState.getValue(DoorBlock.POWERED)) {
+        if (!this.isMobInteractableDoor(doorState)) {
             return;
         }
 
-        if (open) {
-            this.shelterDoorsToClose.add(doorPos.immutable());
-            this.shelterDoorHoldUntilTicks.put(doorPos.immutable(), this.tickCount + SHELTER_DOOR_OPEN_HOLD_TICKS);
-        }
+        DoorBlock doorBlock = (DoorBlock) doorState.getBlock();
 
         if (doorState.getValue(DoorBlock.OPEN) == open) {
-            if (!open) {
-                this.shelterDoorHoldUntilTicks.remove(doorPos);
+            if (open) {
+                this.shelterDoorsToClose.add(doorPos.immutable());
             }
             return;
         }
 
         doorBlock.setOpen(this, this.level(), doorState, doorPos, open);
 
-        if (!open) {
-            this.shelterDoorHoldUntilTicks.remove(doorPos);
+        if (open) {
+            this.shelterDoorsToClose.add(doorPos.immutable());
         }
+    }
+
+    @Nullable
+    private BlockPos getMobInteractableDoorPos(BlockPos pos) {
+        BlockState state = this.level().getBlockState(pos);
+        if (this.isMobInteractableDoor(state)) {
+            return this.getLowerShelterDoorPos(pos, state);
+        }
+
+        return null;
+    }
+
+    private boolean isMobInteractableDoor(BlockState state) {
+        return state.is(BlockTags.MOB_INTERACTABLE_DOORS, holder -> holder.getBlock() instanceof DoorBlock);
     }
 
     private BlockPos getLowerShelterDoorPos(BlockPos pos, BlockState blockState) {
@@ -2704,10 +2688,8 @@ public class RibbitEntity extends AgeableMob implements
                 : pos.immutable();
     }
 
-    private boolean canReachShelterDoor(BlockPos pos) {
-        return this.getBoundingBox()
-                .inflate(SHELTER_DOOR_REACH_DISTANCE, SHELTER_DOOR_REACH_DISTANCE, SHELTER_DOOR_REACH_DISTANCE)
-                .intersects(new AABB(pos).expandTowards(0.0D, 1.0D, 0.0D));
+    private boolean isShelterDoorTooFarAway(BlockPos pos) {
+        return !pos.closerToCenterThan(this.position(), DOOR_CLOSE_FORGET_DISTANCE);
     }
 
     private boolean isBedHomeSlotClaimed(BlockPos pos) {
