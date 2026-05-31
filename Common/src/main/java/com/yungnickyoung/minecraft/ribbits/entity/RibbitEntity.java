@@ -123,6 +123,10 @@ public class RibbitEntity extends AgeableMob implements
     private static final double NIGHT_SHELTER_WAIT_REACHED_DISTANCE = 0.9D;
     private static final double NIGHT_SHELTER_WAIT_CENTER_HORIZONTAL_DISTANCE = 0.12D;
     private static final double NIGHT_SHELTER_WAIT_CENTER_VERTICAL_DISTANCE = 0.35D;
+    private static final double NIGHT_SHELTER_WAIT_OCCUPANCY_HORIZONTAL_DISTANCE = 0.45D;
+    private static final double NIGHT_SHELTER_WAIT_OCCUPANCY_VERTICAL_DISTANCE = 0.75D;
+    private static final double PLAYER_SET_HOME_REST_HORIZONTAL_DISTANCE = 0.9D;
+    private static final double PLAYER_SET_HOME_REST_VERTICAL_DISTANCE = 1.0D;
     private static final double FLOATING_PLANT_NAVIGATION_NODE_REACHED_DISTANCE = 0.65D;
     private static final int DOOR_INTERACT_NODE_COOLDOWN_TICKS = 20;
     private static final double DOOR_CLOSE_FORGET_DISTANCE = 3.0D;
@@ -848,6 +852,7 @@ public class RibbitEntity extends AgeableMob implements
         int occupied = 0;
         int upperFloorSkipped = 0;
         List<String> rejectedCarpetDetails = new ArrayList<>();
+        List<RibbitEntity> nearbyRibbits = this.getNightShelterWaitOccupantCandidates(min, max);
 
         for (BlockPos pos : BlockPos.betweenClosed(min, max)) {
             if (!this.level().getBlockState(pos).is(BlockTags.WOOL_CARPETS)) {
@@ -882,7 +887,7 @@ public class RibbitEntity extends AgeableMob implements
                 continue;
             }
 
-            Optional<RibbitEntity> occupyingRibbit = this.getNightShelterWaitOccupant(pos);
+            Optional<RibbitEntity> occupyingRibbit = this.getNightShelterWaitOccupant(pos, nearbyRibbits);
             if (occupyingRibbit.isPresent()) {
                 occupied++;
                 RibbitEntity occupant = occupyingRibbit.get();
@@ -892,7 +897,7 @@ public class RibbitEntity extends AgeableMob implements
                         "occupied_by=" + occupant.getShelterDebugOwnerLabel()
                                 + "@"
                                 + occupant.blockPosition()
-                                + "/dist="
+                                + "/distSqr="
                                 + String.format(Locale.ROOT, "%.2f", this.getDistanceToBlockCenterSqr(occupant, pos)));
                 continue;
             }
@@ -982,12 +987,53 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     private Optional<RibbitEntity> getNightShelterWaitOccupant(BlockPos pos) {
-        return this.level().getEntitiesOfClass(
+        return this.getNightShelterWaitOccupant(
+                pos,
+                this.level().getEntitiesOfClass(
                         RibbitEntity.class,
-                        new AABB(pos).inflate(0.35D, 0.5D, 0.35D),
-                        ribbit -> ribbit != this && ribbit.isAlive())
-                .stream()
+                        new AABB(pos).inflate(
+                                NIGHT_SHELTER_WAIT_CARPET_SEARCH_RANGE,
+                                BED_HOME_VERTICAL_RANGE,
+                                NIGHT_SHELTER_WAIT_CARPET_SEARCH_RANGE),
+                        ribbit -> ribbit != this && ribbit.isAlive()));
+    }
+
+    private Optional<RibbitEntity> getNightShelterWaitOccupant(BlockPos pos, List<RibbitEntity> candidates) {
+        return candidates.stream()
+                .filter(ribbit -> ribbit.hasNightShelterWaitClaim(pos)
+                        || ribbit.isPhysicallyOccupyingNightShelterWait(pos))
                 .min(Comparator.comparingDouble(ribbit -> this.getDistanceToBlockCenterSqr(ribbit, pos)));
+    }
+
+    private List<RibbitEntity> getNightShelterWaitOccupantCandidates(BlockPos min, BlockPos max) {
+        AABB searchBox = new AABB(
+                min.getX(),
+                min.getY(),
+                min.getZ(),
+                max.getX() + 1.0D,
+                max.getY() + 1.0D,
+                max.getZ() + 1.0D).inflate(1.0D);
+        return this.level().getEntitiesOfClass(
+                RibbitEntity.class,
+                searchBox,
+                ribbit -> ribbit != this && ribbit.isAlive());
+    }
+
+    private boolean hasNightShelterWaitClaim(BlockPos pos) {
+        return this.nightShelterWaitPosition != null && this.nightShelterWaitPosition.equals(pos);
+    }
+
+    private boolean isPhysicallyOccupyingNightShelterWait(BlockPos pos) {
+        return this.blockPosition().equals(pos) || this.isNearNightShelterWaitOccupancyCenter(pos);
+    }
+
+    private boolean isNearNightShelterWaitOccupancyCenter(BlockPos pos) {
+        Vec3 restPosition = this.getNightShelterWaitRestPosition(pos);
+        double dx = this.getX() - restPosition.x;
+        double dz = this.getZ() - restPosition.z;
+        double dy = Math.abs(this.getY() - restPosition.y);
+        return dx * dx + dz * dz <= Mth.square(NIGHT_SHELTER_WAIT_OCCUPANCY_HORIZONTAL_DISTANCE)
+                && dy <= NIGHT_SHELTER_WAIT_OCCUPANCY_VERTICAL_DISTANCE;
     }
 
     private double getDistanceToBlockCenterSqr(RibbitEntity ribbit, BlockPos pos) {
@@ -1232,12 +1278,27 @@ public class RibbitEntity extends AgeableMob implements
             return true;
         }
 
-        return this.isCenteredAtAutomaticBedHome() || this.isCenteredAtNightShelterWaitPosition();
+        return this.isCenteredAtAutomaticBedHome()
+                || this.isCenteredAtPlayerSetHomePosition()
+                || this.isCenteredAtNightShelterWaitPosition();
     }
 
     private boolean isCenteredAtAutomaticBedHome() {
         return this.hasValidAutomaticBedHome()
                 && this.isCloseEnoughToBedHomeRestPosition(this.getBedHomeRestPosition(this.homePosition));
+    }
+
+    private boolean isCenteredAtPlayerSetHomePosition() {
+        if (!this.homePositionSetByPlayer || this.homePosition == null) {
+            return false;
+        }
+
+        Vec3 restPosition = Vec3.atBottomCenterOf(this.homePosition);
+        double dx = this.getX() - restPosition.x;
+        double dz = this.getZ() - restPosition.z;
+        double dy = Math.abs(this.getY() - restPosition.y);
+        return dx * dx + dz * dz <= Mth.square(PLAYER_SET_HOME_REST_HORIZONTAL_DISTANCE)
+                && dy <= PLAYER_SET_HOME_REST_VERTICAL_DISTANCE;
     }
 
     private boolean isCenteredAtNightShelterWaitPosition() {
