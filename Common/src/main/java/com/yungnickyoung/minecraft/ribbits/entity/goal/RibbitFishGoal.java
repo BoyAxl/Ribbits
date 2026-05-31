@@ -287,7 +287,7 @@ public class RibbitFishGoal extends Goal {
             return;
         }
 
-        this.abandonFishingSpot("approach_stuck");
+        this.abandonFishingSpot();
     }
 
     private boolean shouldKeepApproaching(double distanceSqr) {
@@ -300,12 +300,8 @@ public class RibbitFishGoal extends Goal {
                 || this.ticksWithoutApproachProgress < NAVIGATION_DONE_APPROACH_GRACE_TICKS;
     }
 
-    private void abandonFishingSpot(String reason) {
-        BlockPos failedDryPos = this.dryBlockPos;
-        BlockPos failedWaterPos = this.waterPos;
-        int failedTicks = this.ticksWithoutApproachProgress;
+    private void abandonFishingSpot() {
         this.nextFishingSpotAttemptTick = this.ribbit.tickCount + FISHING_SPOT_RETRY_DELAY_TICKS;
-        this.ribbit.logFishingSpotAbandoned(failedDryPos, failedWaterPos, reason, failedTicks, this.nextFishingSpotAttemptTick);
         this.ribbit.getNavigation().stop();
         this.resetTarget();
     }

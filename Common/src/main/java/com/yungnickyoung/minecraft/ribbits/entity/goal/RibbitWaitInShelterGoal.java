@@ -60,7 +60,7 @@ public class RibbitWaitInShelterGoal extends Goal {
 
     @Override
     public void stop() {
-        this.ribbit.clearNavigationEntityBlockerMemory("night_shelter_wait_stop");
+        this.ribbit.clearNavigationEntityBlockerMemory();
         this.clearTarget();
     }
 
@@ -96,7 +96,7 @@ public class RibbitWaitInShelterGoal extends Goal {
             this.targetWaitPosition = waitPosition;
             this.nextPathAttemptTick = 0;
             this.scheduleInitialOpportunisticBedCheck();
-            this.ribbit.clearNavigationEntityBlockerMemory("night_shelter_wait_target_changed");
+            this.ribbit.clearNavigationEntityBlockerMemory();
             this.startProgressTracking(targetPosition);
         }
 
@@ -113,7 +113,7 @@ public class RibbitWaitInShelterGoal extends Goal {
         boolean moving = path != null && this.ribbit.getNavigation().moveTo(path, speed);
         if (!moving) {
             this.nextPathAttemptTick = this.ribbit.tickCount + PATH_RETRY_TICKS;
-            this.ribbit.handleNightShelterWaitPathFailed("path_failed");
+            this.ribbit.handleNightShelterWaitPathFailed();
             this.clearProgressTracking();
             return;
         }
@@ -126,7 +126,7 @@ public class RibbitWaitInShelterGoal extends Goal {
         if (distanceToTargetSqr < this.bestDistanceToTargetSqr - MIN_PROGRESS_DISTANCE_SQR) {
             this.bestDistanceToTargetSqr = distanceToTargetSqr;
             this.ticksWithoutProgress = 0;
-            this.ribbit.clearNavigationEntityBlockerMemory("night_shelter_wait_progress");
+            this.ribbit.clearNavigationEntityBlockerMemory();
             return;
         }
 
@@ -152,7 +152,7 @@ public class RibbitWaitInShelterGoal extends Goal {
                 }
                 case EXHAUSTED -> {
                     this.ribbit.getNavigation().stop();
-                    this.ribbit.handleNightShelterWaitPathFailed("entity_blocked");
+                    this.ribbit.handleNightShelterWaitPathFailed();
                     this.nextPathAttemptTick = this.ribbit.tickCount + PATH_RETRY_TICKS;
                     this.clearProgressTracking();
                     return;
@@ -164,7 +164,7 @@ public class RibbitWaitInShelterGoal extends Goal {
 
         if (this.ticksWithoutProgress >= STUCK_TICKS) {
             this.ribbit.getNavigation().stop();
-            this.ribbit.handleNightShelterWaitPathFailed("stuck");
+            this.ribbit.handleNightShelterWaitPathFailed();
             this.nextPathAttemptTick = this.ribbit.tickCount + PATH_RETRY_TICKS;
             this.clearProgressTracking();
         }

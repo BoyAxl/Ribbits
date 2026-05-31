@@ -72,7 +72,7 @@ public class RibbitGoHomeGoal extends Goal {
 
     @Override
     public void stop() {
-        this.ribbit.clearNavigationEntityBlockerMemory("go_home_stop");
+        this.ribbit.clearNavigationEntityBlockerMemory();
         this.clearTarget();
     }
 
@@ -107,7 +107,7 @@ public class RibbitGoHomeGoal extends Goal {
             this.targetHome = homePosition;
             this.targetPosition = navigationTarget;
             this.nextPathAttemptTick = 0;
-            this.ribbit.clearNavigationEntityBlockerMemory("go_home_target_changed");
+            this.ribbit.clearNavigationEntityBlockerMemory();
             this.startProgressTracking(navigationTarget);
         }
 
@@ -124,7 +124,7 @@ public class RibbitGoHomeGoal extends Goal {
         boolean moving = path != null && this.ribbit.getNavigation().moveTo(path, speed);
         if (!moving) {
             this.nextPathAttemptTick = this.ribbit.tickCount + PATH_RETRY_TICKS;
-            this.ribbit.handleShelterPathFailed(homePosition, "path_failed");
+            this.ribbit.handleShelterPathFailed(homePosition);
             this.clearProgressTracking();
             return;
         }
@@ -146,7 +146,7 @@ public class RibbitGoHomeGoal extends Goal {
         if (distanceToTargetSqr < this.bestDistanceToTargetSqr - MIN_PROGRESS_DISTANCE_SQR) {
             this.bestDistanceToTargetSqr = distanceToTargetSqr;
             this.ticksWithoutProgress = 0;
-            this.ribbit.clearNavigationEntityBlockerMemory("go_home_progress");
+            this.ribbit.clearNavigationEntityBlockerMemory();
             return;
         }
 
@@ -172,7 +172,7 @@ public class RibbitGoHomeGoal extends Goal {
                 }
                 case EXHAUSTED -> {
                     this.ribbit.getNavigation().stop();
-                    this.ribbit.handleShelterPathFailed(homePosition, "entity_blocked");
+                    this.ribbit.handleShelterPathFailed(homePosition);
                     this.nextPathAttemptTick = this.ribbit.tickCount + PATH_RETRY_TICKS;
                     this.clearProgressTracking();
                     return;
@@ -184,7 +184,7 @@ public class RibbitGoHomeGoal extends Goal {
 
         if (this.ticksWithoutProgress >= STUCK_TICKS) {
             this.ribbit.getNavigation().stop();
-            this.ribbit.handleShelterPathFailed(homePosition, "stuck");
+            this.ribbit.handleShelterPathFailed(homePosition);
             this.nextPathAttemptTick = this.ribbit.tickCount + PATH_RETRY_TICKS;
             this.clearProgressTracking();
         }
