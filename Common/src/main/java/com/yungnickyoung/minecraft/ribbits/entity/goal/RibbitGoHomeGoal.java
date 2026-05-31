@@ -72,6 +72,7 @@ public class RibbitGoHomeGoal extends Goal {
 
     @Override
     public void stop() {
+        this.ribbit.clearNavigationEntityBlockerMemory("go_home_stop");
         this.clearTarget();
     }
 
@@ -98,15 +99,20 @@ public class RibbitGoHomeGoal extends Goal {
         double speed = this.speedModifier * waterModifier;
         this.ribbit.getNavigation().setSpeedModifier(speed);
 
+        if (this.ribbit.tickNavigationEntityBlockerDetour(speed)) {
+            return;
+        }
+
         if (!homePosition.equals(this.targetHome) || !navigationTarget.equals(this.targetPosition)) {
             this.targetHome = homePosition;
             this.targetPosition = navigationTarget;
             this.nextPathAttemptTick = 0;
+            this.ribbit.clearNavigationEntityBlockerMemory("go_home_target_changed");
             this.startProgressTracking(navigationTarget);
         }
 
         if (!this.ribbit.getNavigation().isDone()) {
-            this.trackProgress(homePosition, navigationTarget);
+            this.trackProgress(homePosition, navigationTarget, speed);
             return;
         }
 
@@ -135,11 +141,12 @@ public class RibbitGoHomeGoal extends Goal {
         return this.ribbit.isAtShelterTarget(homePosition);
     }
 
-    private void trackProgress(BlockPos homePosition, Vec3 navigationTarget) {
+    private void trackProgress(BlockPos homePosition, Vec3 navigationTarget, double speed) {
         double distanceToTargetSqr = this.ribbit.position().distanceToSqr(navigationTarget);
         if (distanceToTargetSqr < this.bestDistanceToTargetSqr - MIN_PROGRESS_DISTANCE_SQR) {
             this.bestDistanceToTargetSqr = distanceToTargetSqr;
             this.ticksWithoutProgress = 0;
+            this.ribbit.clearNavigationEntityBlockerMemory("go_home_progress");
             return;
         }
 
@@ -147,10 +154,31 @@ public class RibbitGoHomeGoal extends Goal {
         if (this.ticksWithoutProgress >= BLOCKER_CHECK_START_TICKS
                 && this.ribbit.tickCount >= this.nextBlockerCheckTick) {
             this.nextBlockerCheckTick = this.ribbit.tickCount + BLOCKER_CHECK_INTERVAL_TICKS;
-            if (this.ribbit.tryYieldToBlockingRibbit(navigationTarget, NAVIGATION_PRIORITY_HOME, "go_home")) {
-                this.nextPathAttemptTick = this.ribbit.tickCount + BLOCKER_YIELD_TICKS;
-                this.clearProgressTracking();
-                return;
+            RibbitEntity.NavigationBlockerHandling blockerHandling = this.ribbit.tryHandleNavigationBlocker(
+                    navigationTarget,
+                    NAVIGATION_PRIORITY_HOME,
+                    "go_home",
+                    speed);
+            switch (blockerHandling) {
+                case YIELDED -> {
+                    this.nextPathAttemptTick = this.ribbit.tickCount + BLOCKER_YIELD_TICKS;
+                    this.clearProgressTracking();
+                    return;
+                }
+                case DETOURING -> {
+                    this.nextPathAttemptTick = this.ribbit.getNavigationEntityBlockerDetourUntilTick();
+                    this.clearProgressTracking();
+                    return;
+                }
+                case EXHAUSTED -> {
+                    this.ribbit.getNavigation().stop();
+                    this.ribbit.handleShelterPathFailed(homePosition, "entity_blocked");
+                    this.nextPathAttemptTick = this.ribbit.tickCount + PATH_RETRY_TICKS;
+                    this.clearProgressTracking();
+                    return;
+                }
+                case NONE -> {
+                }
             }
         }
 

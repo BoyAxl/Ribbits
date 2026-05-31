@@ -29,6 +29,8 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
+import net.minecraft.world.entity.ai.util.DefaultRandomPos;
+import net.minecraft.world.entity.ai.util.LandRandomPos;
 import net.minecraft.world.entity.ai.village.poi.PoiManager;
 import net.minecraft.world.entity.ai.village.poi.PoiTypes;
 import net.minecraft.world.entity.player.Player;
@@ -123,6 +125,15 @@ public class RibbitEntity extends AgeableMob implements
     private static final double BED_HOME_PARTIAL_PATH_MAX_HORIZONTAL_DISTANCE = 2.5D;
     private static final double NAVIGATION_BLOCKER_SEARCH_DISTANCE = 0.85D;
     private static final double NAVIGATION_BLOCKER_FORWARD_DOT = 0.2D;
+    private static final double NAVIGATION_ENTITY_BLOCKER_AHEAD_DISTANCE = 0.65D;
+    private static final double NAVIGATION_ENTITY_BLOCKER_CONTACT_MARGIN = 0.25D;
+    private static final double NAVIGATION_ENTITY_BLOCKER_VERTICAL_MARGIN = 0.1D;
+    private static final int NAVIGATION_ENTITY_BLOCKER_DETOUR_TICKS = 300;
+    private static final int NAVIGATION_ENTITY_BLOCKER_MAX_DETOURS = 3;
+    private static final int NAVIGATION_ENTITY_BLOCKER_RANDOM_RANGE = 8;
+    private static final int NAVIGATION_ENTITY_BLOCKER_RANDOM_VERTICAL_RANGE = 3;
+    private static final double NAVIGATION_ENTITY_DEBUG_RANGE = 2.75D;
+    private static final int NAVIGATION_ENTITY_DEBUG_MAX_ENTITIES = 8;
     private static final double NIGHT_SHELTER_WAIT_REACHED_DISTANCE = 0.9D;
     private static final double NIGHT_SHELTER_WAIT_CENTER_HORIZONTAL_DISTANCE = 0.12D;
     private static final double NIGHT_SHELTER_WAIT_CENTER_VERTICAL_DISTANCE = 0.35D;
@@ -219,6 +230,12 @@ public class RibbitEntity extends AgeableMob implements
     private boolean lastNightShelterWaitSearchLocallyBlocked;
     private BlockPos lastLocalNightShelterBlockedPosition;
     private int localNightShelterBlockedCycles;
+    @Nullable
+    private BlockPos navigationEntityBlockerTarget;
+    @Nullable
+    private String navigationEntityBlockerContext;
+    private int navigationEntityBlockerDetourCycles;
+    private int navigationEntityBlockerDetourUntilTick;
     private boolean lastNightShelterWaitPathCanReach;
     private boolean lastNightShelterWaitPathProgressive;
     private boolean lastNightCommunityAnchorPathCanReach;
@@ -836,6 +853,9 @@ public class RibbitEntity extends AgeableMob implements
         }
 
         Path path = this.getNavigation().createPath(this.nightCommunityAnchorPosition, 1);
+        if (path == null || !path.canReach()) {
+            this.debugNavigationPathEntityContext("night_community_anchor", path);
+        }
         boolean progressivePath = path != null
                 && !path.canReach()
                 && this.isProgressivePartialNightCommunityAnchorPath(path);
@@ -1001,6 +1021,9 @@ public class RibbitEntity extends AgeableMob implements
             int batchNumber = batchStart / NIGHT_SHELTER_WAIT_CARPET_PATHFIND_BATCH_SIZE + 1;
             List<BlockPos> batchCandidates = candidates.subList(batchStart, batchEnd);
             Path path = this.getNavigation().createPath(new LinkedHashSet<>(batchCandidates), 0);
+            if (path == null || !path.canReach()) {
+                this.debugNavigationPathEntityContext("night_shelter_carpet_batch:" + batchNumber + "/" + totalBatches, path);
+            }
             boolean progressivePath = path != null
                     && !path.canReach()
                     && this.isProgressivePartialNightShelterWaitPath(path);
@@ -1602,6 +1625,9 @@ public class RibbitEntity extends AgeableMob implements
     public Path createNightShelterWaitNavigationPath(BlockPos waitPosition) {
         this.debugPathPreflightIfNavigationCannotUpdate("night_shelter_wait:" + waitPosition.toShortString(), Set.of(waitPosition));
         Path path = this.getNavigation().createPath(waitPosition, 0);
+        if (path == null || !path.canReach()) {
+            this.debugNavigationPathEntityContext("night_shelter_wait_navigation:" + waitPosition.toShortString(), path);
+        }
         boolean progressivePath = path != null
                 && !path.canReach()
                 && this.isProgressivePartialNightShelterWaitPath(path);
@@ -1769,15 +1795,19 @@ public class RibbitEntity extends AgeableMob implements
         return x * x + z * z <= distance * distance;
     }
 
-    public boolean tryYieldToBlockingRibbit(Vec3 navigationTarget, int navigationPriority, String context) {
+    public NavigationBlockerHandling tryHandleNavigationBlocker(
+            Vec3 navigationTarget,
+            int navigationPriority,
+            String context,
+            double speed) {
         if (this.level().isClientSide()) {
-            return false;
+            return NavigationBlockerHandling.NONE;
         }
 
         Vec3 toTarget = new Vec3(navigationTarget.x - this.getX(), 0.0D, navigationTarget.z - this.getZ());
         double targetDistanceSqr = toTarget.lengthSqr();
         if (targetDistanceSqr < 0.25D) {
-            return false;
+            return NavigationBlockerHandling.NONE;
         }
 
         Vec3 targetDirection = toTarget.normalize();
@@ -1789,11 +1819,13 @@ public class RibbitEntity extends AgeableMob implements
                 .min(Comparator.comparingDouble(other -> other.distanceToSqr(this)));
 
         if (blocker.isEmpty()) {
-            return false;
+            this.debugNavigationBlockerScan(context, navigationTarget, targetDirection, navigationPriority);
+            return this.tryDetourAroundBlockingEntity(navigationTarget, targetDirection, context, speed);
         }
 
         RibbitEntity blockingRibbit = blocker.get();
         this.getNavigation().stop();
+        this.clearNavigationEntityBlockerDetour("ribbit_yield");
         this.debugShelter("yielding to blocking ribbit {} blocker={} context={} target={} priority={} blockerPriority={}",
                 this.getShelterDebugLabel(),
                 blockingRibbit.getShelterDebugLabel(),
@@ -1801,7 +1833,7 @@ public class RibbitEntity extends AgeableMob implements
                 BlockPos.containing(navigationTarget),
                 navigationPriority,
                 blockingRibbit.getNavigationYieldPriority());
-        return true;
+        return NavigationBlockerHandling.YIELDED;
     }
 
     private boolean isNavigationBlockerCandidate(RibbitEntity other) {
@@ -1830,6 +1862,329 @@ public class RibbitEntity extends AgeableMob implements
         }
 
         return this.getUUID().compareTo(other.getUUID()) > 0;
+    }
+
+    private NavigationBlockerHandling tryDetourAroundBlockingEntity(
+            Vec3 navigationTarget,
+            Vec3 targetDirection,
+            String context,
+            double speed) {
+        Optional<Entity> blocker = this.findBlockingNavigationEntity(targetDirection);
+        if (blocker.isEmpty()) {
+            this.debugShelter("navigation entity blocker none {} context={} target={} nearby={}",
+                    this.getShelterDebugLabel(),
+                    context,
+                    BlockPos.containing(navigationTarget),
+                    this.getNearbyNavigationEntitiesDebug(this.blockPosition(), targetDirection));
+            return NavigationBlockerHandling.NONE;
+        }
+
+        Entity blockingEntity = blocker.get();
+        BlockPos targetKey = BlockPos.containing(navigationTarget);
+        if (!targetKey.equals(this.navigationEntityBlockerTarget)
+                || !context.equals(this.navigationEntityBlockerContext)) {
+            this.navigationEntityBlockerTarget = targetKey.immutable();
+            this.navigationEntityBlockerContext = context;
+            this.navigationEntityBlockerDetourCycles = 0;
+        }
+
+        this.navigationEntityBlockerDetourCycles++;
+        if (this.navigationEntityBlockerDetourCycles > NAVIGATION_ENTITY_BLOCKER_MAX_DETOURS) {
+            this.debugShelter("navigation entity blocker exhausted {} blocker={} context={} target={} cycles={}",
+                    this.getShelterDebugLabel(),
+                    this.getNavigationBlockerDebugLabel(blockingEntity),
+                    context,
+                    targetKey,
+                    this.navigationEntityBlockerDetourCycles - 1);
+            this.clearNavigationEntityBlockerDetour("exhausted");
+            return NavigationBlockerHandling.EXHAUSTED;
+        }
+
+        Vec3 detourPosition = this.getNavigationEntityBlockerDetourPosition(blockingEntity);
+        if (detourPosition == null) {
+            this.debugShelter("navigation entity blocker detour missing {} blocker={} context={} target={} cycles={}/{}",
+                    this.getShelterDebugLabel(),
+                    this.getNavigationBlockerDebugLabel(blockingEntity),
+                    context,
+                    targetKey,
+                    this.navigationEntityBlockerDetourCycles,
+                    NAVIGATION_ENTITY_BLOCKER_MAX_DETOURS);
+            return NavigationBlockerHandling.EXHAUSTED;
+        }
+
+        this.getNavigation().stop();
+        boolean moving = this.getNavigation().moveTo(detourPosition.x, detourPosition.y, detourPosition.z, speed);
+        if (!moving) {
+            this.debugShelter("navigation entity blocker detour rejected {} blocker={} context={} target={} detour={} cycles={}/{}",
+                    this.getShelterDebugLabel(),
+                    this.getNavigationBlockerDebugLabel(blockingEntity),
+                    context,
+                    targetKey,
+                    BlockPos.containing(detourPosition),
+                    this.navigationEntityBlockerDetourCycles,
+                    NAVIGATION_ENTITY_BLOCKER_MAX_DETOURS);
+            return NavigationBlockerHandling.EXHAUSTED;
+        }
+
+        this.navigationEntityBlockerDetourUntilTick = this.tickCount + NAVIGATION_ENTITY_BLOCKER_DETOUR_TICKS;
+        this.debugShelter("navigation entity blocker detour started {} blocker={} context={} target={} detour={} cycles={}/{} untilTick={}",
+                this.getShelterDebugLabel(),
+                this.getNavigationBlockerDebugLabel(blockingEntity),
+                context,
+                targetKey,
+                BlockPos.containing(detourPosition),
+                this.navigationEntityBlockerDetourCycles,
+                NAVIGATION_ENTITY_BLOCKER_MAX_DETOURS,
+                this.navigationEntityBlockerDetourUntilTick);
+        return NavigationBlockerHandling.DETOURING;
+    }
+
+    private Optional<Entity> findBlockingNavigationEntity(Vec3 targetDirection) {
+        AABB searchBox = this.getBoundingBox().inflate(NAVIGATION_BLOCKER_SEARCH_DISTANCE, 0.25D, NAVIGATION_BLOCKER_SEARCH_DISTANCE);
+        return this.level()
+                .getEntities(this, searchBox, this::isNavigationEntityBlockerCandidate)
+                .stream()
+                .filter(entity -> this.isBlockingNavigationTo(entity, targetDirection))
+                .min(Comparator.comparingDouble(entity -> entity.distanceToSqr(this)));
+    }
+
+    private boolean isNavigationEntityBlockerCandidate(Entity entity) {
+        if (entity == this
+                || entity.isRemoved()
+                || entity.isSpectator()
+                || entity.isPassenger()
+                || entity instanceof RibbitEntity) {
+            return false;
+        }
+
+        return EntitySelector.CAN_BE_COLLIDED_WITH.test(entity)
+                || this.canCollideWith(entity)
+                || entity.canCollideWith(this);
+    }
+
+    private boolean isBlockingNavigationTo(Entity entity, Vec3 targetDirection) {
+        AABB contactBox = this.getBoundingBox().inflate(
+                NAVIGATION_ENTITY_BLOCKER_CONTACT_MARGIN,
+                NAVIGATION_ENTITY_BLOCKER_VERTICAL_MARGIN,
+                NAVIGATION_ENTITY_BLOCKER_CONTACT_MARGIN);
+        if (contactBox.intersects(entity.getBoundingBox())) {
+            this.debugShelter("navigation entity blocker body contact {} blocker={} contactBox={} blockerBox={}",
+                    this.getShelterDebugLabel(),
+                    this.getNavigationBlockerDebugLabel(entity),
+                    contactBox,
+                    entity.getBoundingBox());
+            return true;
+        }
+
+        AABB forwardContactBox = this.getBoundingBox()
+                .expandTowards(
+                        targetDirection.x * NAVIGATION_ENTITY_BLOCKER_AHEAD_DISTANCE,
+                        0.0D,
+                        targetDirection.z * NAVIGATION_ENTITY_BLOCKER_AHEAD_DISTANCE)
+                .inflate(
+                        NAVIGATION_ENTITY_BLOCKER_CONTACT_MARGIN,
+                        NAVIGATION_ENTITY_BLOCKER_VERTICAL_MARGIN,
+                        NAVIGATION_ENTITY_BLOCKER_CONTACT_MARGIN);
+        if (forwardContactBox.intersects(entity.getBoundingBox())) {
+            this.debugShelter("navigation entity blocker contact {} blocker={} contactBox={} blockerBox={}",
+                    this.getShelterDebugLabel(),
+                    this.getNavigationBlockerDebugLabel(entity),
+                    forwardContactBox,
+                    entity.getBoundingBox());
+            return true;
+        }
+
+        Vec3 entityCenter = entity.getBoundingBox().getCenter();
+        Vec3 toEntity = new Vec3(entityCenter.x - this.getX(), 0.0D, entityCenter.z - this.getZ());
+        double entityDistanceSqr = toEntity.lengthSqr();
+        if (entityDistanceSqr < 1.0E-4D || entityDistanceSqr > Mth.square(NAVIGATION_BLOCKER_SEARCH_DISTANCE)) {
+            return false;
+        }
+
+        double forwardDot = targetDirection.dot(toEntity.normalize());
+        return forwardDot >= NAVIGATION_BLOCKER_FORWARD_DOT;
+    }
+
+    @Nullable
+    private Vec3 getNavigationEntityBlockerDetourPosition(Entity blocker) {
+        Vec3 detourPosition = LandRandomPos.getPosAway(
+                this,
+                NAVIGATION_ENTITY_BLOCKER_RANDOM_RANGE,
+                NAVIGATION_ENTITY_BLOCKER_RANDOM_VERTICAL_RANGE,
+                blocker.position());
+        if (detourPosition != null) {
+            return detourPosition;
+        }
+
+        return DefaultRandomPos.getPos(
+                this,
+                NAVIGATION_ENTITY_BLOCKER_RANDOM_RANGE,
+                NAVIGATION_ENTITY_BLOCKER_RANDOM_VERTICAL_RANGE);
+    }
+
+    public boolean tickNavigationEntityBlockerDetour(double speed) {
+        if (this.navigationEntityBlockerDetourUntilTick <= this.tickCount) {
+            if (this.navigationEntityBlockerDetourUntilTick > 0) {
+                this.clearNavigationEntityBlockerDetour("detour_elapsed");
+            }
+
+            return false;
+        }
+
+        this.getNavigation().setSpeedModifier(speed);
+        return true;
+    }
+
+    public int getNavigationEntityBlockerDetourUntilTick() {
+        return this.navigationEntityBlockerDetourUntilTick;
+    }
+
+    public void clearNavigationEntityBlockerDetour(String reason) {
+        if (this.navigationEntityBlockerDetourUntilTick > 0) {
+            this.debugShelter("navigation entity blocker detour cleared {} reason={} target={} context={} cycles={}",
+                    this.getShelterDebugLabel(),
+                    reason,
+                    this.navigationEntityBlockerTarget,
+                    this.navigationEntityBlockerContext,
+                    this.navigationEntityBlockerDetourCycles);
+        }
+
+        this.navigationEntityBlockerDetourUntilTick = 0;
+    }
+
+    public void clearNavigationEntityBlockerMemory(String reason) {
+        this.clearNavigationEntityBlockerDetour(reason);
+        this.navigationEntityBlockerTarget = null;
+        this.navigationEntityBlockerContext = null;
+        this.navigationEntityBlockerDetourCycles = 0;
+    }
+
+    private String getNavigationBlockerDebugLabel(Entity entity) {
+        return entity.getType()
+                + "#"
+                + entity.getStringUUID().substring(0, Math.min(8, entity.getStringUUID().length()))
+                + "@"
+                + entity.blockPosition();
+    }
+
+    private void debugNavigationBlockerScan(
+            String context,
+            Vec3 navigationTarget,
+            Vec3 targetDirection,
+            int navigationPriority) {
+        if (!SHELTER_DEBUG_LOGS) {
+            return;
+        }
+
+        this.debugShelter("navigation blocker scan {} context={} target={} priority={} navDone={} bestPos={} currentNearby={} targetNearby={}",
+                this.getShelterDebugLabel(),
+                context,
+                BlockPos.containing(navigationTarget),
+                navigationPriority,
+                this.getNavigation().isDone(),
+                this.position(),
+                this.getNearbyNavigationEntitiesDebug(this.blockPosition(), targetDirection),
+                this.getNearbyNavigationEntitiesDebug(BlockPos.containing(navigationTarget), targetDirection));
+    }
+
+    private void debugNavigationPathEntityContext(String context, @Nullable Path path) {
+        if (!SHELTER_DEBUG_LOGS) {
+            return;
+        }
+
+        BlockPos current = this.blockPosition();
+        BlockPos target = path == null ? null : path.getTarget();
+        BlockPos end = path == null || path.getEndNode() == null ? null : path.getEndNode().asBlockPos();
+        Vec3 targetDirection = this.getHorizontalDirectionTo(target);
+        this.debugShelter("navigation path entity context {} context={} pathNull={} target={} end={} canReach={} distToTarget={} nodeCount={} currentNearby={} endNearby={} targetNearby={} currentBlocks={} endBlocks={}",
+                this.getShelterDebugLabel(),
+                context,
+                path == null,
+                target,
+                end,
+                path != null && path.canReach(),
+                path == null ? null : path.getDistToTarget(),
+                path == null ? 0 : path.getNodeCount(),
+                this.getNearbyNavigationEntitiesDebug(current, targetDirection),
+                end == null ? "[]" : this.getNearbyNavigationEntitiesDebug(end, targetDirection),
+                target == null ? "[]" : this.getNearbyNavigationEntitiesDebug(target, targetDirection),
+                this.getPathNeighborhoodDebug(current),
+                end == null ? "[]" : this.getPathNeighborhoodDebug(end));
+    }
+
+    @Nullable
+    private Vec3 getHorizontalDirectionTo(@Nullable BlockPos target) {
+        if (target == null) {
+            return null;
+        }
+
+        Vec3 direction = new Vec3(target.getX() + 0.5D - this.getX(), 0.0D, target.getZ() + 0.5D - this.getZ());
+        if (direction.lengthSqr() < 1.0E-4D) {
+            return null;
+        }
+
+        return direction.normalize();
+    }
+
+    private List<String> getNearbyNavigationEntitiesDebug(BlockPos center, @Nullable Vec3 targetDirection) {
+        AABB searchBox = new AABB(center).inflate(
+                NAVIGATION_ENTITY_DEBUG_RANGE,
+                NAVIGATION_ENTITY_DEBUG_RANGE,
+                NAVIGATION_ENTITY_DEBUG_RANGE);
+        return this.level()
+                .getEntities(this, searchBox, entity -> entity != this && !entity.isRemoved())
+                .stream()
+                .sorted(Comparator.comparingDouble(entity -> entity.distanceToSqr(this)))
+                .limit(NAVIGATION_ENTITY_DEBUG_MAX_ENTITIES)
+                .map(entity -> this.getNavigationEntityDebugString(entity, targetDirection))
+                .toList();
+    }
+
+    private String getNavigationEntityDebugString(Entity entity, @Nullable Vec3 targetDirection) {
+        Vec3 toEntity = new Vec3(entity.getX() - this.getX(), 0.0D, entity.getZ() - this.getZ());
+        double forwardDot = targetDirection == null || toEntity.lengthSqr() < 1.0E-4D
+                ? 0.0D
+                : targetDirection.dot(toEntity.normalize());
+        return entity.getType()
+                + "#"
+                + entity.getStringUUID().substring(0, Math.min(8, entity.getStringUUID().length()))
+                + "@"
+                + entity.blockPosition()
+                + "/pos=("
+                + String.format(Locale.ROOT, "%.2f", entity.getX())
+                + ","
+                + String.format(Locale.ROOT, "%.2f", entity.getY())
+                + ","
+                + String.format(Locale.ROOT, "%.2f", entity.getZ())
+                + ")/dist="
+                + String.format(Locale.ROOT, "%.2f", Math.sqrt(entity.distanceToSqr(this)))
+                + "/dy="
+                + String.format(Locale.ROOT, "%.2f", entity.getY() - this.getY())
+                + "/forwardDot="
+                + String.format(Locale.ROOT, "%.2f", forwardDot)
+                + "/selectorCollide="
+                + EntitySelector.CAN_BE_COLLIDED_WITH.test(entity)
+                + "/thisCanCollide="
+                + this.canCollideWith(entity)
+                + "/entityCanCollide="
+                + entity.canCollideWith(this)
+                + "/passenger="
+                + entity.isPassenger()
+                + "/vehicle="
+                + entity.isVehicle()
+                + "/bbox=("
+                + String.format(Locale.ROOT, "%.2f", entity.getBoundingBox().minX)
+                + ","
+                + String.format(Locale.ROOT, "%.2f", entity.getBoundingBox().minY)
+                + ","
+                + String.format(Locale.ROOT, "%.2f", entity.getBoundingBox().minZ)
+                + " -> "
+                + String.format(Locale.ROOT, "%.2f", entity.getBoundingBox().maxX)
+                + ","
+                + String.format(Locale.ROOT, "%.2f", entity.getBoundingBox().maxY)
+                + ","
+                + String.format(Locale.ROOT, "%.2f", entity.getBoundingBox().maxZ)
+                + ")";
     }
 
     private int getNavigationYieldPriority() {
@@ -1866,6 +2221,9 @@ public class RibbitEntity extends AgeableMob implements
 
             if (!approachPositions.isEmpty()) {
                 Path path = this.getNavigation().createPath(approachPositions, 0);
+                if (path == null || !path.canReach()) {
+                    this.debugNavigationPathEntityContext("bed_navigation:" + homePosition.toShortString(), path);
+                }
                 this.resolveBedHomeApproachFromPath(homePosition, approachPositions, path)
                         .ifPresent(approachPosition -> this.activeBedHomeApproachPosition = approachPosition);
                 if (path != null && !path.canReach()
@@ -2353,6 +2711,9 @@ public class RibbitEntity extends AgeableMob implements
                 path != null && path.canReach(),
                 path == null ? null : path.getDistToTarget(),
                 path == null ? 0 : path.getNodeCount());
+        if (path == null || !path.canReach()) {
+            this.debugNavigationPathEntityContext("bed_path_attempt", path);
+        }
 
         bedSlots.stream()
                 .limit(BED_HOME_DEBUG_MAX_SLOT_DETAILS)
@@ -3630,6 +3991,13 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     private record BedHomeSearchResult(Optional<BedHomePathSelection> selectedHome, int pendingClaims, int totalSlots) {
+    }
+
+    public enum NavigationBlockerHandling {
+        NONE,
+        YIELDED,
+        DETOURING,
+        EXHAUSTED
     }
 
     private static class ShelterPathRetry {

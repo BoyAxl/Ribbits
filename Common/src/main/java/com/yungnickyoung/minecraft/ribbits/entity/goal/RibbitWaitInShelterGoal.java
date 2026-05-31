@@ -60,6 +60,7 @@ public class RibbitWaitInShelterGoal extends Goal {
 
     @Override
     public void stop() {
+        this.ribbit.clearNavigationEntityBlockerMemory("night_shelter_wait_stop");
         this.clearTarget();
     }
 
@@ -71,6 +72,10 @@ public class RibbitWaitInShelterGoal extends Goal {
         }
 
         double speed = this.speedModifier * (this.ribbit.isInWater() ? RibbitEntity.WATER_SPEED_MULTIPLIER : 1.0F);
+        if (this.ribbit.tickNavigationEntityBlockerDetour(speed)) {
+            return;
+        }
+
         if (this.ribbit.isAtNightShelterWaitPosition()) {
             if (this.ribbit.tryFineApproachToNightShelterWaitPosition(speed)) {
                 return;
@@ -91,11 +96,12 @@ public class RibbitWaitInShelterGoal extends Goal {
             this.targetWaitPosition = waitPosition;
             this.nextPathAttemptTick = 0;
             this.scheduleInitialOpportunisticBedCheck();
+            this.ribbit.clearNavigationEntityBlockerMemory("night_shelter_wait_target_changed");
             this.startProgressTracking(targetPosition);
         }
 
         if (!this.ribbit.getNavigation().isDone()) {
-            this.trackProgress(waitPosition, targetPosition);
+            this.trackProgress(waitPosition, targetPosition, speed);
             return;
         }
 
@@ -115,11 +121,12 @@ public class RibbitWaitInShelterGoal extends Goal {
         this.startProgressTracking(targetPosition);
     }
 
-    private void trackProgress(BlockPos waitPosition, Vec3 targetPosition) {
+    private void trackProgress(BlockPos waitPosition, Vec3 targetPosition, double speed) {
         double distanceToTargetSqr = this.ribbit.position().distanceToSqr(targetPosition);
         if (distanceToTargetSqr < this.bestDistanceToTargetSqr - MIN_PROGRESS_DISTANCE_SQR) {
             this.bestDistanceToTargetSqr = distanceToTargetSqr;
             this.ticksWithoutProgress = 0;
+            this.ribbit.clearNavigationEntityBlockerMemory("night_shelter_wait_progress");
             return;
         }
 
@@ -127,10 +134,31 @@ public class RibbitWaitInShelterGoal extends Goal {
         if (this.ticksWithoutProgress >= BLOCKER_CHECK_START_TICKS
                 && this.ribbit.tickCount >= this.nextBlockerCheckTick) {
             this.nextBlockerCheckTick = this.ribbit.tickCount + BLOCKER_CHECK_INTERVAL_TICKS;
-            if (this.ribbit.tryYieldToBlockingRibbit(targetPosition, NAVIGATION_PRIORITY_SHELTER_WAIT, "night_shelter_wait")) {
-                this.nextPathAttemptTick = this.ribbit.tickCount + BLOCKER_YIELD_TICKS;
-                this.clearProgressTracking();
-                return;
+            RibbitEntity.NavigationBlockerHandling blockerHandling = this.ribbit.tryHandleNavigationBlocker(
+                    targetPosition,
+                    NAVIGATION_PRIORITY_SHELTER_WAIT,
+                    "night_shelter_wait",
+                    speed);
+            switch (blockerHandling) {
+                case YIELDED -> {
+                    this.nextPathAttemptTick = this.ribbit.tickCount + BLOCKER_YIELD_TICKS;
+                    this.clearProgressTracking();
+                    return;
+                }
+                case DETOURING -> {
+                    this.nextPathAttemptTick = this.ribbit.getNavigationEntityBlockerDetourUntilTick();
+                    this.clearProgressTracking();
+                    return;
+                }
+                case EXHAUSTED -> {
+                    this.ribbit.getNavigation().stop();
+                    this.ribbit.handleNightShelterWaitPathFailed("entity_blocked");
+                    this.nextPathAttemptTick = this.ribbit.tickCount + PATH_RETRY_TICKS;
+                    this.clearProgressTracking();
+                    return;
+                }
+                case NONE -> {
+                }
             }
         }
 
