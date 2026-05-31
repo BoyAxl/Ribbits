@@ -96,9 +96,9 @@ public class RibbitEntity extends AgeableMob implements
     private static final int BED_HOME_UNAVAILABLE_RETRY_JITTER_TICKS = 100;
     private static final int BED_HOME_PENDING_RETRY_MIN_TICKS = 300;
     private static final int BED_HOME_PENDING_RETRY_JITTER_TICKS = 300;
-    private static final int BED_HOME_PATH_RETRY_MIN_TICKS = 40;
-    private static final int BED_HOME_PATH_RETRY_JITTER_TICKS = 40;
-    private static final int BED_HOME_PATH_RETRY_MAX_TICKS = 400;
+    private static final int SHELTER_PATH_RETRY_MIN_TICKS = 40;
+    private static final int SHELTER_PATH_RETRY_JITTER_TICKS = 40;
+    private static final int SHELTER_PATH_RETRY_MAX_TICKS = 400;
     private static final int BED_HOME_MAX_PATH_FAILURES = 3;
     private static final int BED_HOME_UPPER_BUNK_MAX_PATH_FAILURES = 6;
     private static final int AUTOMATIC_BED_HOME_MAX_DISTANCE = 128;
@@ -109,10 +109,13 @@ public class RibbitEntity extends AgeableMob implements
     private static final int BED_HOME_INITIAL_SEARCH_SPREAD_TICKS = 20;
     private static final int NIGHT_COMMUNITY_ANCHOR_SEARCH_RANGE = 96;
     private static final int NIGHT_SHELTER_WAIT_CARPET_SEARCH_RANGE = 48;
-    private static final int NIGHT_SHELTER_WAIT_CARPET_CANDIDATE_LIMIT = 24;
+    private static final int NIGHT_SHELTER_WAIT_CARPET_PATHFIND_BATCH_SIZE = 5;
+    private static final int NIGHT_SHELTER_WAIT_MAX_PATH_FAILURES = 3;
     private static final int NIGHT_SHELTER_WAIT_DEBUG_MAX_CARPET_DETAILS = 16;
     private static final int LOCAL_NIGHT_SHELTER_WAIT_RETRY_TICKS = 1200;
-    private static final double BED_HOME_PATH_PROGRESS_DISTANCE_SQR = 4.0D;
+    private static final int LOCAL_NIGHT_SHELTER_BLOCKED_CONFIRMATION_CYCLES = 3;
+    private static final double SHELTER_PATH_PROGRESS_DISTANCE_SQR = 4.0D;
+    private static final double LOCAL_NIGHT_SHELTER_BLOCKED_POSITION_DISTANCE_SQR = 9.0D;
     private static final double BED_HOME_SNAP_HORIZONTAL_DISTANCE = 0.25D;
     private static final double BED_HOME_SNAP_VERTICAL_DISTANCE = 0.55D;
     private static final double BED_HOME_UPPER_BUNK_APPROACH_HORIZONTAL_DISTANCE = 0.85D;
@@ -214,13 +217,21 @@ public class RibbitEntity extends AgeableMob implements
     private boolean nightShelterWaitReached;
     private boolean localNightShelterWaitActive;
     private boolean lastNightShelterWaitSearchLocallyBlocked;
+    private BlockPos lastLocalNightShelterBlockedPosition;
+    private int localNightShelterBlockedCycles;
+    private boolean lastNightShelterWaitPathCanReach;
+    private boolean lastNightShelterWaitPathProgressive;
+    private boolean lastNightCommunityAnchorPathCanReach;
+    private boolean lastNightCommunityAnchorPathProgressive;
     private int leashStillTicks;
     private boolean autonomousAiPausedLastTick;
     private final Set<BlockPos> shelterDoorsToClose = new HashSet<>();
     @Nullable
     private Node lastCheckedDoorNode;
     private int remainingDoorNodeCooldown;
-    private final Map<BlockPos, BedHomePathRetry> unreachableBedHomeRetries = new HashMap<>();
+    private final Map<BlockPos, ShelterPathRetry> unreachableBedHomeRetries = new HashMap<>();
+    private final Map<BlockPos, ShelterPathRetry> unreachableNightShelterWaitRetries = new HashMap<>();
+    private final Set<BlockPos> lastNightShelterWaitPathFailedCandidates = new LinkedHashSet<>();
 
     /**
      * Set of Ribbits playing music with this Ribbit as the master.
@@ -467,10 +478,12 @@ public class RibbitEntity extends AgeableMob implements
         this.nightCommunityAnchorPosition = null;
         this.clearNightShelterWait();
         this.clearLocalNightShelterWait("home_set");
+        this.clearLocalNightShelterBlockedSearch("home_set");
         this.homePositionSetByPlayer = setByPlayer;
         this.homePositionIsAutomaticBed = automaticBed;
         this.initialBedHomeSearchScheduled = false;
         this.clearAutomaticBedHomePathFailures();
+        this.unreachableNightShelterWaitRetries.clear();
 
         if (setByPlayer) {
             this.debugShelter("manual home set for {} home={}", this.getShelterDebugLabel(), this.homePosition);
@@ -546,8 +559,10 @@ public class RibbitEntity extends AgeableMob implements
         this.activeBedHomeApproachPosition = null;
         this.clearNightShelterWait();
         this.clearLocalNightShelterWait("autonomous_pause");
+        this.clearLocalNightShelterBlockedSearch("autonomous_pause");
         this.clearNightCommunityAnchor();
         this.unreachableBedHomeRetries.clear();
+        this.unreachableNightShelterWaitRetries.clear();
         this.clearAutomaticBedHomePathFailures();
         this.resetHomeRelatedGoals(false);
         this.setUmbrellaFalling(false);
@@ -594,13 +609,12 @@ public class RibbitEntity extends AgeableMob implements
 
         this.clearAutomaticBedHomeIfTooFar();
 
-        if (this.localNightShelterWaitActive) {
+        boolean retryingLocalNightShelterWait = this.localNightShelterWaitActive;
+        if (retryingLocalNightShelterWait) {
             if (this.tickCount < this.nextBedHomeSearchTick) {
                 this.getNavigation().stop();
                 return false;
             }
-
-            this.clearLocalNightShelterWait("retry_due");
         }
 
         if (this.hasActiveNightShelterWait()) {
@@ -637,6 +651,8 @@ public class RibbitEntity extends AgeableMob implements
         if (bedHome.selectedHome().isPresent()) {
             this.clearNightCommunityAnchor();
             this.clearNightShelterWait();
+            this.clearLocalNightShelterWait("bed_selected");
+            this.clearLocalNightShelterBlockedSearch("bed_selected");
             BedHomePathSelection newHome = bedHome.selectedHome().get();
             this.setPendingBedHome(newHome.slot(), newHome.approach());
         } else {
@@ -649,16 +665,38 @@ public class RibbitEntity extends AgeableMob implements
             this.updateNightShelterWaitTarget();
             if (this.hasActiveNightShelterWait()) {
                 this.clearNightCommunityAnchor();
-                this.clearLocalNightShelterWait("carpet_wait_selected");
+                if (retryingLocalNightShelterWait && !this.lastNightShelterWaitPathCanReach) {
+                    this.clearNightShelterWait();
+                    this.delayLocalNightShelterWaitRetry("carpet_wait_progressive_retry");
+                } else {
+                    this.clearLocalNightShelterWait("carpet_wait_selected");
+                }
             } else {
                 this.updateNightCommunityAnchor();
-                if (this.nightCommunityAnchorPosition != null && this.canApproachNightCommunityAnchor()) {
+                boolean canApproachAnchor = this.nightCommunityAnchorPosition != null
+                        && this.canApproachNightCommunityAnchor();
+                if (canApproachAnchor && this.lastNightCommunityAnchorPathCanReach) {
                     this.clearLocalNightShelterWait("community_anchor_selected");
+                    this.clearLocalNightShelterBlockedSearch("community_anchor_selected");
+                } else if (canApproachAnchor) {
+                    if (this.recordLocalNightShelterBlockedSearchIfNeeded()) {
+                        this.blockLastNightShelterWaitPathFailedCandidatesForNight("community_anchor_progress_stalled");
+                        this.activateLocalNightShelterWait("community_anchor_progress_stalled");
+                    } else if (retryingLocalNightShelterWait) {
+                        this.delayLocalNightShelterWaitRetry("community_anchor_progressive_retry");
+                    } else {
+                        this.clearLocalNightShelterWait("community_anchor_progressive_selected");
+                    }
                 } else if (this.nightCommunityAnchorPosition != null || this.lastNightShelterWaitSearchLocallyBlocked) {
+                    if (this.recordLocalNightShelterBlockedSearchIfNeeded()) {
+                        this.blockLastNightShelterWaitPathFailedCandidatesForNight("local_anchor_blocked");
+                    }
                     this.activateLocalNightShelterWait(
                             this.nightCommunityAnchorPosition == null
                                     ? "no_community_anchor_after_carpet_blocked"
                                     : "community_anchor_path_blocked");
+                } else if (retryingLocalNightShelterWait) {
+                    this.delayLocalNightShelterWaitRetry("no_reachable_retry_target");
                 }
             }
 
@@ -775,9 +813,13 @@ public class RibbitEntity extends AgeableMob implements
 
     private void clearNightCommunityAnchor() {
         this.nightCommunityAnchorPosition = null;
+        this.lastNightCommunityAnchorPathCanReach = false;
+        this.lastNightCommunityAnchorPathProgressive = false;
     }
 
     private boolean canApproachNightCommunityAnchor() {
+        this.lastNightCommunityAnchorPathCanReach = false;
+        this.lastNightCommunityAnchorPathProgressive = false;
         if (this.nightCommunityAnchorPosition == null) {
             return false;
         }
@@ -786,6 +828,8 @@ public class RibbitEntity extends AgeableMob implements
         boolean progressivePath = path != null
                 && !path.canReach()
                 && this.isProgressivePartialNightCommunityAnchorPath(path);
+        this.lastNightCommunityAnchorPathCanReach = path != null && path.canReach();
+        this.lastNightCommunityAnchorPathProgressive = progressivePath;
         boolean canApproach = path != null && (path.canReach() || progressivePath);
         this.debugShelter("night community anchor path check {} anchor={} target={} end={} canReach={} progressive={} canApproach={} distToTarget={} nodeCount={}",
                 this.getShelterDebugLabel(),
@@ -802,6 +846,8 @@ public class RibbitEntity extends AgeableMob implements
 
     private void updateNightShelterWaitTarget() {
         this.lastNightShelterWaitSearchLocallyBlocked = false;
+        this.lastNightShelterWaitPathCanReach = false;
+        this.lastNightShelterWaitPathProgressive = false;
 
         if (!this.isShelterNight() || this.hasUsableHomePosition()) {
             this.clearNightShelterWait();
@@ -851,8 +897,11 @@ public class RibbitEntity extends AgeableMob implements
         int collisionBlocked = 0;
         int occupied = 0;
         int upperFloorSkipped = 0;
+        int pathCooldown = 0;
         List<String> rejectedCarpetDetails = new ArrayList<>();
         List<RibbitEntity> nearbyRibbits = this.getNightShelterWaitOccupantCandidates(min, max);
+        this.clearExpiredNightShelterWaitPathRetries();
+        this.lastNightShelterWaitPathFailedCandidates.clear();
 
         for (BlockPos pos : BlockPos.betweenClosed(min, max)) {
             if (!this.level().getBlockState(pos).is(BlockTags.WOOL_CARPETS)) {
@@ -902,16 +951,24 @@ public class RibbitEntity extends AgeableMob implements
                 continue;
             }
 
+            if (this.isNightShelterWaitPathRetryCoolingDown(pos)) {
+                pathCooldown++;
+                this.addNightShelterWaitCarpetDetail(
+                        rejectedCarpetDetails,
+                        pos,
+                        this.getNightShelterWaitPathRetryReason(pos));
+                continue;
+            }
+
             availableCarpets.add(pos.immutable());
         }
 
         List<BlockPos> candidates = availableCarpets.stream()
                 .sorted(Comparator.comparingDouble(pos -> pos.distSqr(origin)))
-                .limit(NIGHT_SHELTER_WAIT_CARPET_CANDIDATE_LIMIT)
                 .toList();
 
         if (candidates.isEmpty()) {
-            this.debugShelter("night shelter carpet search empty {} scannedCarpets={} upperFloorSkipped={} blockedAbove={} skyVisible={} collisionBlocked={} occupied={} details={}",
+            this.debugShelter("night shelter carpet search empty {} scannedCarpets={} upperFloorSkipped={} blockedAbove={} skyVisible={} collisionBlocked={} occupied={} pathCooldown={} details={}",
                     this.getShelterDebugLabel(),
                     carpets,
                     upperFloorSkipped,
@@ -919,18 +976,50 @@ public class RibbitEntity extends AgeableMob implements
                     skyVisible,
                     collisionBlocked,
                     occupied,
+                    pathCooldown,
                     rejectedCarpetDetails);
             return Optional.empty();
         }
 
-        Path path = this.getNavigation().createPath(new LinkedHashSet<>(candidates), 0);
-        boolean progressivePath = path != null
-                && !path.canReach()
-                && this.isProgressivePartialNightShelterWaitPath(path);
-        if (path == null || (!path.canReach() && !progressivePath)) {
-            this.lastNightShelterWaitSearchLocallyBlocked = true;
-            this.debugShelter("night shelter carpet path failed {} candidates={} scannedCarpets={} upperFloorSkipped={} blockedAbove={} skyVisible={} collisionBlocked={} occupied={} target={} end={} canReach={} progressive={} details={}",
+        Path lastPath = null;
+        boolean lastProgressivePath = false;
+        int totalBatches = (candidates.size() + NIGHT_SHELTER_WAIT_CARPET_PATHFIND_BATCH_SIZE - 1)
+                / NIGHT_SHELTER_WAIT_CARPET_PATHFIND_BATCH_SIZE;
+        for (int batchStart = 0; batchStart < candidates.size(); batchStart += NIGHT_SHELTER_WAIT_CARPET_PATHFIND_BATCH_SIZE) {
+            int batchEnd = Math.min(batchStart + NIGHT_SHELTER_WAIT_CARPET_PATHFIND_BATCH_SIZE, candidates.size());
+            int batchNumber = batchStart / NIGHT_SHELTER_WAIT_CARPET_PATHFIND_BATCH_SIZE + 1;
+            List<BlockPos> batchCandidates = candidates.subList(batchStart, batchEnd);
+            Path path = this.getNavigation().createPath(new LinkedHashSet<>(batchCandidates), 0);
+            boolean progressivePath = path != null
+                    && !path.canReach()
+                    && this.isProgressivePartialNightShelterWaitPath(path);
+
+            if (path != null && (path.canReach() || progressivePath)) {
+                this.lastNightShelterWaitPathCanReach = path.canReach();
+                this.lastNightShelterWaitPathProgressive = progressivePath;
+                this.debugShelter("night shelter carpet path selected {} batch={}/{} batchCandidates={} totalCandidates={} scannedCarpets={} target={} end={} canReach={} progressive={}",
+                        this.getShelterDebugLabel(),
+                        batchNumber,
+                        totalBatches,
+                        batchCandidates.size(),
+                        candidates.size(),
+                        carpets,
+                        path.getTarget(),
+                        path.getEndNode() == null ? null : path.getEndNode().asBlockPos(),
+                        path.canReach(),
+                        progressivePath);
+                return Optional.of(path.getTarget().immutable());
+            }
+
+            lastPath = path;
+            lastProgressivePath = progressivePath;
+        }
+
+        this.lastNightShelterWaitSearchLocallyBlocked = true;
+        this.lastNightShelterWaitPathFailedCandidates.addAll(candidates);
+        this.debugShelter("night shelter carpet path failed {} batches={} candidates={} scannedCarpets={} upperFloorSkipped={} blockedAbove={} skyVisible={} collisionBlocked={} occupied={} pathCooldown={} target={} end={} canReach={} progressive={} details={}",
                     this.getShelterDebugLabel(),
+                    totalBatches,
                     candidates.size(),
                     carpets,
                     upperFloorSkipped,
@@ -938,23 +1027,13 @@ public class RibbitEntity extends AgeableMob implements
                     skyVisible,
                     collisionBlocked,
                     occupied,
-                    path == null ? null : path.getTarget(),
-                    path == null || path.getEndNode() == null ? null : path.getEndNode().asBlockPos(),
-                    path != null && path.canReach(),
-                    progressivePath,
+                    pathCooldown,
+                    lastPath == null ? null : lastPath.getTarget(),
+                    lastPath == null || lastPath.getEndNode() == null ? null : lastPath.getEndNode().asBlockPos(),
+                    lastPath != null && lastPath.canReach(),
+                    lastProgressivePath,
                     rejectedCarpetDetails);
-            return Optional.empty();
-        }
-
-        this.debugShelter("night shelter carpet path selected {} candidates={} scannedCarpets={} target={} end={} canReach={} progressive={}",
-                this.getShelterDebugLabel(),
-                candidates.size(),
-                carpets,
-                path.getTarget(),
-                path.getEndNode() == null ? null : path.getEndNode().asBlockPos(),
-                path.canReach(),
-                progressivePath);
-        return Optional.of(path.getTarget().immutable());
+        return Optional.empty();
     }
 
     private boolean isAvailableNightShelterWaitCarpet(BlockPos pos) {
@@ -1072,6 +1151,8 @@ public class RibbitEntity extends AgeableMob implements
     private void clearNightShelterWait() {
         this.nightShelterWaitPosition = null;
         this.nightShelterWaitReached = false;
+        this.lastNightShelterWaitPathCanReach = false;
+        this.lastNightShelterWaitPathProgressive = false;
     }
 
     private void activateLocalNightShelterWait(String reason) {
@@ -1089,6 +1170,21 @@ public class RibbitEntity extends AgeableMob implements
                 this.nextBedHomeSearchTick);
     }
 
+    private void delayLocalNightShelterWaitRetry(String reason) {
+        this.clearNightShelterWait();
+        this.clearNightCommunityAnchor();
+        this.localNightShelterWaitActive = true;
+        this.nextBedHomeSearchTick = this.tickCount + LOCAL_NIGHT_SHELTER_WAIT_RETRY_TICKS;
+        this.getNavigation().stop();
+        this.setDeltaMovement(Vec3.ZERO);
+        this.resetHomeRelatedGoals(false);
+        this.debugShelter("local night shelter wait retry delayed {} reason={} pos={} retryTick={}",
+                this.getShelterDebugLabel(),
+                reason,
+                this.blockPosition(),
+                this.nextBedHomeSearchTick);
+    }
+
     private void clearLocalNightShelterWait(String reason) {
         if (!this.localNightShelterWaitActive) {
             return;
@@ -1099,6 +1195,52 @@ public class RibbitEntity extends AgeableMob implements
                 this.getShelterDebugLabel(),
                 reason,
                 this.blockPosition());
+    }
+
+    private boolean recordLocalNightShelterBlockedSearchIfNeeded() {
+        if (!this.lastNightShelterWaitSearchLocallyBlocked
+                || this.nightCommunityAnchorPosition == null
+                || this.lastNightShelterWaitPathFailedCandidates.isEmpty()) {
+            this.clearLocalNightShelterBlockedSearch("blocked_search_not_confirmable");
+            return false;
+        }
+
+        BlockPos currentPosition = this.blockPosition();
+        if (this.lastLocalNightShelterBlockedPosition != null
+                && this.lastLocalNightShelterBlockedPosition.distSqr(currentPosition)
+                <= LOCAL_NIGHT_SHELTER_BLOCKED_POSITION_DISTANCE_SQR) {
+            this.localNightShelterBlockedCycles++;
+        } else {
+            this.localNightShelterBlockedCycles = 1;
+        }
+
+        this.lastLocalNightShelterBlockedPosition = currentPosition.immutable();
+        boolean confirmed = this.localNightShelterBlockedCycles >= LOCAL_NIGHT_SHELTER_BLOCKED_CONFIRMATION_CYCLES;
+        this.debugShelter("local night shelter blocked search {} cycles={}/{} pos={} failedCarpets={} anchor={} anchorCanReach={} anchorProgressive={} confirmed={}",
+                this.getShelterDebugLabel(),
+                this.localNightShelterBlockedCycles,
+                LOCAL_NIGHT_SHELTER_BLOCKED_CONFIRMATION_CYCLES,
+                currentPosition,
+                this.lastNightShelterWaitPathFailedCandidates.size(),
+                this.nightCommunityAnchorPosition,
+                this.lastNightCommunityAnchorPathCanReach,
+                this.lastNightCommunityAnchorPathProgressive,
+                confirmed);
+        return confirmed;
+    }
+
+    private void clearLocalNightShelterBlockedSearch(String reason) {
+        if (this.localNightShelterBlockedCycles > 0 || !this.lastNightShelterWaitPathFailedCandidates.isEmpty()) {
+            this.debugShelter("local night shelter blocked search cleared {} reason={} cycles={} failedCarpets={}",
+                    this.getShelterDebugLabel(),
+                    reason,
+                    this.localNightShelterBlockedCycles,
+                    this.lastNightShelterWaitPathFailedCandidates.size());
+        }
+
+        this.lastLocalNightShelterBlockedPosition = null;
+        this.localNightShelterBlockedCycles = 0;
+        this.lastNightShelterWaitPathFailedCandidates.clear();
     }
 
     public boolean isLocalNightShelterWaitActive() {
@@ -1192,6 +1334,7 @@ public class RibbitEntity extends AgeableMob implements
         this.setDeltaMovement(Vec3.ZERO);
         this.setPos(restPosition.x, restPosition.y, restPosition.z);
         this.nightShelterWaitReached = true;
+        this.clearLocalNightShelterBlockedSearch("carpet_wait_reached");
         this.debugShelter("night shelter wait reached {} waitPos={} restPos={} retryTick={} recentered={}",
                 this.getShelterDebugLabel(),
                 this.nightShelterWaitPosition,
@@ -1360,6 +1503,7 @@ public class RibbitEntity extends AgeableMob implements
                     this.getShelterDebugLabel(),
                     this.nightShelterWaitPosition,
                     reason);
+            this.markNightShelterWaitPathRetry(this.nightShelterWaitPosition, reason);
         }
         this.clearNightShelterWait();
         this.scheduleNextBedHomeSearch();
@@ -2338,7 +2482,7 @@ public class RibbitEntity extends AgeableMob implements
         BlockPos target = path.getTarget();
         double startDistanceSqr = this.blockPosition().distSqr(target);
         double endDistanceSqr = endNode.asBlockPos().distSqr(target);
-        boolean progresses = endDistanceSqr < startDistanceSqr - BED_HOME_PATH_PROGRESS_DISTANCE_SQR;
+        boolean progresses = endDistanceSqr < startDistanceSqr - SHELTER_PATH_PROGRESS_DISTANCE_SQR;
         if (SHELTER_DEBUG_LOGS) {
             this.debugShelter("bed partial path progress check {} target={} end={} startDistSqr={} endDistSqr={} progresses={}",
                     this.getShelterDebugLabel(),
@@ -2365,7 +2509,7 @@ public class RibbitEntity extends AgeableMob implements
         BlockPos target = path.getTarget();
         double startDistanceSqr = this.blockPosition().distSqr(target);
         double endDistanceSqr = endNode.asBlockPos().distSqr(target);
-        boolean progresses = endDistanceSqr < startDistanceSqr - BED_HOME_PATH_PROGRESS_DISTANCE_SQR;
+        boolean progresses = endDistanceSqr < startDistanceSqr - SHELTER_PATH_PROGRESS_DISTANCE_SQR;
         if (SHELTER_DEBUG_LOGS) {
             this.debugShelter("night shelter partial path progress check {} target={} end={} startDistSqr={} endDistSqr={} progresses={}",
                     this.getShelterDebugLabel(),
@@ -2392,7 +2536,7 @@ public class RibbitEntity extends AgeableMob implements
         BlockPos target = path.getTarget();
         double startDistanceSqr = this.blockPosition().distSqr(target);
         double endDistanceSqr = endNode.asBlockPos().distSqr(target);
-        boolean progresses = endDistanceSqr < startDistanceSqr - BED_HOME_PATH_PROGRESS_DISTANCE_SQR;
+        boolean progresses = endDistanceSqr < startDistanceSqr - SHELTER_PATH_PROGRESS_DISTANCE_SQR;
         if (SHELTER_DEBUG_LOGS) {
             this.debugShelter("night community anchor partial path progress check {} target={} end={} startDistSqr={} endDistSqr={} progresses={}",
                     this.getShelterDebugLabel(),
@@ -2524,36 +2668,15 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     private boolean isBedHomePathRetryCoolingDown(BlockPos bedSlot) {
-        BedHomePathRetry retry = this.unreachableBedHomeRetries.get(bedSlot);
-        if (retry == null) {
-            return false;
-        }
-
-        if (retry.isBlockedForNight()) {
-            return true;
-        }
-
-        if (!retry.isStillValid(this.tickCount)) {
-            this.unreachableBedHomeRetries.remove(bedSlot);
-            return false;
-        }
-
-        if (!retry.shouldRetry(this.tickCount)) {
-            return true;
-        }
-
-        return false;
+        return this.isShelterPathRetryCoolingDown(this.unreachableBedHomeRetries, bedSlot);
     }
 
     private boolean markBedHomePathRetry(BlockPos bedSlot, String reason) {
-        BlockPos immutableBedSlot = bedSlot.immutable();
-        BedHomePathRetry retry = this.unreachableBedHomeRetries.get(immutableBedSlot);
-        if (retry == null || (!retry.isBlockedForNight() && !retry.isStillValid(this.tickCount))) {
-            retry = new BedHomePathRetry(this.random, this.tickCount);
-            this.unreachableBedHomeRetries.put(immutableBedSlot, retry);
-        }
-
-        boolean blockedForNight = retry.markAttempt(this.tickCount, bedSlot.distSqr(this.blockPosition()));
+        ShelterPathRetry retry = this.getOrCreateShelterPathRetry(this.unreachableBedHomeRetries, bedSlot);
+        boolean blockedForNight = retry.markAttempt(
+                this.tickCount,
+                bedSlot.distSqr(this.blockPosition()),
+                BED_HOME_MAX_PATH_FAILURES);
         this.debugShelter("bed path retry cached {} slot={} reason={} retryTick={} noProgressFailures={} blockedForNight={}",
                 this.getShelterDebugLabel(),
                 bedSlot,
@@ -2565,17 +2688,77 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     private void clearExpiredBedHomePathRetries() {
-        this.unreachableBedHomeRetries.entrySet().removeIf(entry ->
-                !entry.getValue().isBlockedForNight() && !entry.getValue().isStillValid(this.tickCount));
+        this.clearExpiredShelterPathRetries(this.unreachableBedHomeRetries);
+    }
+
+    private boolean isNightShelterWaitPathRetryCoolingDown(BlockPos waitPosition) {
+        return this.isShelterPathRetryCoolingDown(this.unreachableNightShelterWaitRetries, waitPosition);
+    }
+
+    private boolean markNightShelterWaitPathRetry(BlockPos waitPosition, String reason) {
+        ShelterPathRetry retry = this.getOrCreateShelterPathRetry(
+                this.unreachableNightShelterWaitRetries,
+                waitPosition);
+        boolean blockedForNight = retry.markAttempt(
+                this.tickCount,
+                waitPosition.distSqr(this.blockPosition()),
+                NIGHT_SHELTER_WAIT_MAX_PATH_FAILURES);
+        this.debugShelter("night shelter carpet retry cached {} waitPos={} reason={} retryTick={} noProgressFailures={} blockedForNight={}",
+                this.getShelterDebugLabel(),
+                waitPosition,
+                reason,
+                retry.nextScheduledAttemptTick(),
+                retry.failuresWithoutProgress(),
+                blockedForNight);
+        return blockedForNight;
+    }
+
+    private void blockLastNightShelterWaitPathFailedCandidatesForNight(String reason) {
+        if (this.lastNightShelterWaitPathFailedCandidates.isEmpty()) {
+            return;
+        }
+
+        int blocked = 0;
+        List<BlockPos> sample = new ArrayList<>();
+        for (BlockPos waitPosition : this.lastNightShelterWaitPathFailedCandidates) {
+            ShelterPathRetry retry = this.getOrCreateShelterPathRetry(
+                    this.unreachableNightShelterWaitRetries,
+                    waitPosition);
+            if (retry.isBlockedForNight()) {
+                continue;
+            }
+
+            retry.blockForNight(this.tickCount);
+            blocked++;
+            if (sample.size() < NIGHT_SHELTER_WAIT_DEBUG_MAX_CARPET_DETAILS) {
+                sample.add(waitPosition);
+            }
+        }
+
+        if (blocked > 0) {
+            this.debugShelter("night shelter carpets blocked for night {} reason={} blocked={} sample={} cycles={}",
+                    this.getShelterDebugLabel(),
+                    reason,
+                    blocked,
+                    sample,
+                    this.localNightShelterBlockedCycles);
+        }
+    }
+
+    private void clearExpiredNightShelterWaitPathRetries() {
+        this.clearExpiredShelterPathRetries(this.unreachableNightShelterWaitRetries);
+    }
+
+    private String getNightShelterWaitPathRetryReason(BlockPos waitPosition) {
+        return this.getShelterPathRetryReason(this.unreachableNightShelterWaitRetries, waitPosition);
     }
 
     private String getBedHomePathRetryReason(BlockPos bedSlot) {
-        BedHomePathRetry retry = this.unreachableBedHomeRetries.get(bedSlot);
-        return retry != null && retry.isBlockedForNight() ? "path_blocked_for_night" : "path_retry_cooldown";
+        return this.getShelterPathRetryReason(this.unreachableBedHomeRetries, bedSlot);
     }
 
     private String getBedHomePathRetryReasonForDebug(BlockPos bedSlot) {
-        BedHomePathRetry retry = this.unreachableBedHomeRetries.get(bedSlot);
+        ShelterPathRetry retry = this.unreachableBedHomeRetries.get(bedSlot);
         if (retry == null) {
             return "none";
         }
@@ -2583,6 +2766,45 @@ public class RibbitEntity extends AgeableMob implements
         return (retry.isBlockedForNight() ? "blocked_for_night" : "cooldown")
                 + "/next=" + retry.nextScheduledAttemptTick()
                 + "/failures=" + retry.failuresWithoutProgress();
+    }
+
+    private boolean isShelterPathRetryCoolingDown(Map<BlockPos, ShelterPathRetry> retries, BlockPos target) {
+        ShelterPathRetry retry = retries.get(target);
+        if (retry == null) {
+            return false;
+        }
+
+        if (retry.isBlockedForNight()) {
+            return true;
+        }
+
+        if (!retry.isStillValid(this.tickCount)) {
+            retries.remove(target);
+            return false;
+        }
+
+        return !retry.shouldRetry(this.tickCount);
+    }
+
+    private ShelterPathRetry getOrCreateShelterPathRetry(Map<BlockPos, ShelterPathRetry> retries, BlockPos target) {
+        BlockPos immutableTarget = target.immutable();
+        ShelterPathRetry retry = retries.get(immutableTarget);
+        if (retry == null || (!retry.isBlockedForNight() && !retry.isStillValid(this.tickCount))) {
+            retry = new ShelterPathRetry(this.random, this.tickCount);
+            retries.put(immutableTarget, retry);
+        }
+
+        return retry;
+    }
+
+    private void clearExpiredShelterPathRetries(Map<BlockPos, ShelterPathRetry> retries) {
+        retries.entrySet().removeIf(entry ->
+                !entry.getValue().isBlockedForNight() && !entry.getValue().isStillValid(this.tickCount));
+    }
+
+    private String getShelterPathRetryReason(Map<BlockPos, ShelterPathRetry> retries, BlockPos target) {
+        ShelterPathRetry retry = retries.get(target);
+        return retry != null && retry.isBlockedForNight() ? "path_blocked_for_night" : "path_retry_cooldown";
     }
 
     private Optional<BlockPos> getBedHomeSlotFromPoi(BlockPos headPos, boolean headSlot) {
@@ -3012,10 +3234,12 @@ public class RibbitEntity extends AgeableMob implements
             this.pendingBedHomeApproachPosition = null;
             this.activeBedHomeApproachPosition = null;
             this.unreachableBedHomeRetries.clear();
+            this.unreachableNightShelterWaitRetries.clear();
             this.clearAutomaticBedHomePathFailures();
             this.clearNightCommunityAnchor();
             this.clearNightShelterWait();
             this.clearLocalNightShelterWait("daytime");
+            this.clearLocalNightShelterBlockedSearch("daytime");
             this.initialBedHomeSearchScheduled = false;
             return;
         }
@@ -3199,7 +3423,7 @@ public class RibbitEntity extends AgeableMob implements
     private record BedHomeSearchResult(Optional<BedHomePathSelection> selectedHome, int pendingClaims, int totalSlots) {
     }
 
-    private static class BedHomePathRetry {
+    private static class ShelterPathRetry {
         private final RandomSource random;
         private int previousAttemptTick;
         private int nextScheduledAttemptTick;
@@ -3208,14 +3432,14 @@ public class RibbitEntity extends AgeableMob implements
         private double bestDistanceSqr = Double.MAX_VALUE;
         private boolean blockedForNight;
 
-        private BedHomePathRetry(RandomSource random, int tickCount) {
+        private ShelterPathRetry(RandomSource random, int tickCount) {
             this.random = random;
             this.previousAttemptTick = tickCount;
         }
 
-        private boolean markAttempt(int tickCount, double distanceSqr) {
+        private boolean markAttempt(int tickCount, double distanceSqr, int maxFailures) {
             this.previousAttemptTick = tickCount;
-            if (distanceSqr < this.bestDistanceSqr - BED_HOME_PATH_PROGRESS_DISTANCE_SQR) {
+            if (distanceSqr < this.bestDistanceSqr - SHELTER_PATH_PROGRESS_DISTANCE_SQR) {
                 this.bestDistanceSqr = distanceSqr;
                 this.failuresWithoutProgress = 0;
                 this.currentDelay = 0;
@@ -3224,11 +3448,11 @@ public class RibbitEntity extends AgeableMob implements
             }
 
             int delay = this.currentDelay
-                    + this.random.nextInt(BED_HOME_PATH_RETRY_JITTER_TICKS)
-                    + BED_HOME_PATH_RETRY_MIN_TICKS;
-            this.currentDelay = Math.min(delay, BED_HOME_PATH_RETRY_MAX_TICKS);
+                    + this.random.nextInt(SHELTER_PATH_RETRY_JITTER_TICKS)
+                    + SHELTER_PATH_RETRY_MIN_TICKS;
+            this.currentDelay = Math.min(delay, SHELTER_PATH_RETRY_MAX_TICKS);
             this.nextScheduledAttemptTick = tickCount + this.currentDelay;
-            if (this.failuresWithoutProgress >= BED_HOME_MAX_PATH_FAILURES) {
+            if (this.failuresWithoutProgress >= maxFailures) {
                 this.blockedForNight = true;
             }
 
@@ -3236,11 +3460,17 @@ public class RibbitEntity extends AgeableMob implements
         }
 
         private boolean isStillValid(int tickCount) {
-            return tickCount - this.previousAttemptTick < BED_HOME_PATH_RETRY_MAX_TICKS;
+            return tickCount - this.previousAttemptTick < SHELTER_PATH_RETRY_MAX_TICKS;
         }
 
         private boolean shouldRetry(int tickCount) {
             return tickCount >= this.nextScheduledAttemptTick;
+        }
+
+        private void blockForNight(int tickCount) {
+            this.previousAttemptTick = tickCount;
+            this.nextScheduledAttemptTick = Integer.MAX_VALUE;
+            this.blockedForNight = true;
         }
 
         private int nextScheduledAttemptTick() {
