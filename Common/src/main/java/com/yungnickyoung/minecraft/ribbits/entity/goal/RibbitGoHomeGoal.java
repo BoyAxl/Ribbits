@@ -37,7 +37,10 @@ public class RibbitGoHomeGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        if (!this.ribbit.isShelterNight() || this.ribbit.isAutonomousAiPaused() || this.ribbit.isVehicle()) {
+        if (!this.ribbit.isShelterNight()
+                || this.ribbit.isAutonomousAiPaused()
+                || this.ribbit.isVehicle()
+                || !this.ribbit.canUpdateNightShelterNavigationNow()) {
             return false;
         }
 
@@ -56,6 +59,7 @@ public class RibbitGoHomeGoal extends Goal {
                 && this.ribbit.isShelterNight()
                 && !this.ribbit.isAutonomousAiPaused()
                 && !this.ribbit.isVehicle()
+                && this.ribbit.canUpdateNightShelterNavigationNow()
                 && this.ribbit.hasUsableHomePosition()
                 && !this.isHomeReached(homePosition);
     }

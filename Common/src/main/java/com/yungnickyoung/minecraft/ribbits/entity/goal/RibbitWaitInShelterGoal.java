@@ -39,12 +39,14 @@ public class RibbitWaitInShelterGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        return this.ribbit.canUseNightShelterWait();
+        return this.ribbit.canUseNightShelterWait()
+                && !this.ribbit.shouldYieldNightShelterWaitForRestingBuff(RibbitApplyBuffGoal.TRIGGER_RANGE);
     }
 
     @Override
     public boolean canContinueToUse() {
-        return this.ribbit.canUseNightShelterWait();
+        return this.ribbit.canUseNightShelterWait()
+                && !this.ribbit.shouldYieldNightShelterWaitForRestingBuff(RibbitApplyBuffGoal.TRIGGER_RANGE);
     }
 
     @Override

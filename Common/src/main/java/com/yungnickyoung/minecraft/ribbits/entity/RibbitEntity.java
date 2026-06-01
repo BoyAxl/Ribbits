@@ -28,6 +28,7 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
+import net.minecraft.world.entity.ai.targeting.TargetingConditions;
 import net.minecraft.world.entity.ai.util.DefaultRandomPos;
 import net.minecraft.world.entity.ai.util.LandRandomPos;
 import net.minecraft.world.entity.ai.village.poi.PoiManager;
@@ -158,6 +159,8 @@ public class RibbitEntity extends AgeableMob implements
     private static final RawAnimation WALK_HOLDING_FISHERMAN = RawAnimation.begin().thenPlay("walk_holding_fisherman");
     private static final RawAnimation SORCERER_BUFF = RawAnimation.begin().thenPlay("spell");
     private static final RawAnimation SORCERER_BUFF_HOLDING = RawAnimation.begin().thenPlay("spell_holding");
+    private static final RawAnimation SORCERER_SEATED_BUFF = RawAnimation.begin().thenPlay("resting_spell");
+    private static final RawAnimation SORCERER_SEATED_BUFF_HOLDING = RawAnimation.begin().thenPlay("resting_spell_holding");
     private static final RawAnimation FISH = RawAnimation.begin().thenPlay("fishing");
     private static final RawAnimation FISH_HOLDING = RawAnimation.begin().thenPlay("fishing_holding");
     private static final RawAnimation REST = RawAnimation.begin().thenPlay("resting");
@@ -192,6 +195,7 @@ public class RibbitEntity extends AgeableMob implements
     private static final EntityDataAccessor<Boolean> FISHING = SynchedEntityData.defineId(RibbitEntity.class, EntityDataSerializers.BOOLEAN);
     private static final EntityDataAccessor<Boolean> RESTING = SynchedEntityData.defineId(RibbitEntity.class, EntityDataSerializers.BOOLEAN);
     private static final EntityDataAccessor<Boolean> BUFFING = SynchedEntityData.defineId(RibbitEntity.class, EntityDataSerializers.BOOLEAN);
+    private static final EntityDataAccessor<Boolean> SEATED_BUFFING = SynchedEntityData.defineId(RibbitEntity.class, EntityDataSerializers.BOOLEAN);
 
     // These fields are used to prevent threadlocking by accessing entityData on rendering thread
     private RibbitData sidedRibbitData = new RibbitData(RibbitProfessionModule.NITWIT, RibbitUmbrellaTypeModule.UMBRELLA_1, RibbitInstrumentModule.NONE);
@@ -201,6 +205,7 @@ public class RibbitEntity extends AgeableMob implements
     private boolean isFishing = false;
     private boolean isResting = false;
     private boolean isBuffing = false;
+    private boolean isSeatedBuffing = false;
 
     // NOTE: Fields below here are used only on Server
     private int ticksPlayingMusic;
@@ -324,6 +329,10 @@ public class RibbitEntity extends AgeableMob implements
 
             this.tickAutonomousAiPauseState();
             if (!this.isAutonomousAiPaused()) {
+                if (this.isAirborneForNightShelterActions()) {
+                    this.clearLocalNightShelterWait();
+                }
+
                 this.clearAutomaticBedHomeIfTooFar();
                 this.tryRestAtHomeBed();
                 this.tickDoorNavigationAssist();
@@ -359,6 +368,7 @@ public class RibbitEntity extends AgeableMob implements
         builder.define(FISHING, false);
         builder.define(RESTING, false);
         builder.define(BUFFING, false);
+        builder.define(SEATED_BUFFING, false);
     }
 
     @Override
@@ -434,6 +444,8 @@ public class RibbitEntity extends AgeableMob implements
             this.isWatering = this.entityData.get(WATERING);
         } else if (BUFFING.equals(dataAccessor)) {
             this.isBuffing = this.entityData.get(BUFFING);
+        } else if (SEATED_BUFFING.equals(dataAccessor)) {
+            this.isSeatedBuffing = this.entityData.get(SEATED_BUFFING);
         }
     }
 
@@ -570,7 +582,10 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     public boolean tryAssignShelterHome() {
-        if (!this.isShelterNight() || this.homePositionSetByPlayer || this.isAutonomousAiPaused()) {
+        if (!this.isShelterNight()
+                || this.homePositionSetByPlayer
+                || this.isAutonomousAiPaused()
+                || !this.canUpdateNightShelterNavigationNow()) {
             return false;
         }
 
@@ -681,6 +696,7 @@ public class RibbitEntity extends AgeableMob implements
                 || this.isAutonomousAiPaused()
                 || this.isVehicle()
                 || this.isLeashed()
+                || !this.canUpdateNightShelterNavigationNow()
                 || !this.hasActiveNightShelterWait()
                 || this.hasUsableHomePosition()) {
             return false;
@@ -1144,6 +1160,8 @@ public class RibbitEntity extends AgeableMob implements
                 && !this.isAutonomousAiPaused()
                 && !this.isVehicle()
                 && !this.isLeashed()
+                && !this.getBuffing()
+                && this.canUpdateNightShelterNavigationNow()
                 && !this.hasUsableHomePosition()
                 && this.hasActiveNightShelterWait()
                 && !this.isNightShelterWaitReadyToRetry();
@@ -1230,11 +1248,17 @@ public class RibbitEntity extends AgeableMob implements
             return true;
         }
 
+        if (this.getSeatedBuffing()) {
+            return true;
+        }
+
+        boolean centeredAtNightRestPosition = this.isCenteredAtNightRestPosition();
         if (!this.isShelterNight()
                 || this.isVehicle()
                 || this.isLeashed()
                 || this.isTrading()
-                || !this.getNavigation().isDone()
+                || (!centeredAtNightRestPosition && this.isAirborneForNightShelterActions())
+                || (!centeredAtNightRestPosition && !this.getNavigation().isDone())
                 || this.getPlayingInstrument()
                 || this.getFishing()
                 || this.getWatering()
@@ -1246,9 +1270,49 @@ public class RibbitEntity extends AgeableMob implements
             return true;
         }
 
+        return centeredAtNightRestPosition;
+    }
+
+    private boolean isCenteredAtNightRestPosition() {
         return this.isCenteredAtAutomaticBedHome()
+                || this.isRestingInLowerBunkBed()
                 || this.isCenteredAtPlayerSetHomePosition()
                 || this.isCenteredAtNightShelterWaitPosition();
+    }
+
+    public boolean canCastBuffFromCurrentNightRestingPosition() {
+        return this.getResting()
+                && !this.isAutonomousAiPaused()
+                && !this.isVehicle()
+                && !this.isLeashed()
+                && !this.isTrading()
+                && !this.isAirborneForNightShelterActions()
+                && (this.isCenteredAtAutomaticBedHome()
+                        || this.isRestingInLowerBunkBed()
+                        || this.isCenteredAtPlayerSetHomePosition()
+                        || this.isCenteredAtNightShelterWaitPosition());
+    }
+
+    public boolean shouldYieldNightShelterWaitForRestingBuff(double triggerRange) {
+        return this.getRibbitData().getProfession().equals(RibbitProfessionModule.SORCERER)
+                && this.getBuffCooldown() <= 0
+                && this.canCastBuffFromCurrentNightRestingPosition()
+                && this.hasNearbyNonCombatPlayer(triggerRange);
+    }
+
+    public boolean shouldUseSeatedBuffingPose() {
+        return this.isShelterNight() && this.getResting() && this.isRestingInLowerBunkBed();
+    }
+
+    private boolean hasNearbyNonCombatPlayer(double range) {
+        if (!(this.level() instanceof ServerLevel serverLevel)) {
+            return false;
+        }
+
+        return !serverLevel.getNearbyPlayers(
+                TargetingConditions.forNonCombat().range(range),
+                this,
+                this.getBoundingBox().inflate(range, 5.0D, range)).isEmpty();
     }
 
     private boolean isCenteredAtAutomaticBedHome() {
@@ -1311,8 +1375,17 @@ public class RibbitEntity extends AgeableMob implements
                 && this.isCloseEnoughToBedHomeRestPosition(this.getBedHomeRestPosition(this.homePosition));
     }
 
+    public boolean canUpdateNightShelterNavigationNow() {
+        return !this.isUmbrellaFalling() && (this.onGround() || this.isInLiquid());
+    }
+
     private boolean canUpdateGroundNavigationNow() {
-        return !this.isAutonomousAiPaused() && (this.onGround() || this.isInLiquid());
+        return !this.isAutonomousAiPaused() && this.canUpdateNightShelterNavigationNow();
+    }
+
+    private boolean isAirborneForNightShelterActions() {
+        return this.isUmbrellaFalling()
+                || (!this.onGround() && !this.isInLiquid() && this.getDeltaMovement().y < -0.02D);
     }
 
     public void handleNightShelterWaitPathFailed() {
@@ -1825,6 +1898,7 @@ public class RibbitEntity extends AgeableMob implements
                 || this.isLeashed()
                 || this.isAutonomousAiPaused()
                 || this.isVehicle()
+                || !this.canUpdateNightShelterNavigationNow()
                 || !this.hasBedHomeNavigationTarget()) {
             return false;
         }
@@ -3056,7 +3130,23 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     public void setBuffing(boolean isBuffing) {
+        if (!isBuffing) {
+            this.setSeatedBuffing(false);
+        }
         this.entityData.set(BUFFING, isBuffing);
+    }
+
+    public boolean getSeatedBuffing() {
+        return this.isSeatedBuffing;
+    }
+
+    public void setSeatedBuffing(boolean seatedBuffing) {
+        if (this.isSeatedBuffing == seatedBuffing) {
+            return;
+        }
+
+        this.isSeatedBuffing = seatedBuffing;
+        this.entityData.set(SEATED_BUFFING, seatedBuffing);
     }
 
     public int getTicksPlayingMusic() {
@@ -3272,6 +3362,8 @@ public class RibbitEntity extends AgeableMob implements
             controller.setAnimation(
                     this.getRibbitData().getProfession() == RibbitProfessionModule.FISHERMAN ? FALLING_FISHERMAN : FALLING
             );
+        } else if (getBuffing() && this.getSeatedBuffing()) {
+            controller.setAnimation(this.isInRain() ? SORCERER_SEATED_BUFF_HOLDING : SORCERER_SEATED_BUFF);
         } else if (getResting()) {
             controller.setAnimation(this.getRestAnimation());
         } else if (getPlayingInstrument() && this.getRibbitData().getInstrument() != RibbitInstrumentModule.NONE) {

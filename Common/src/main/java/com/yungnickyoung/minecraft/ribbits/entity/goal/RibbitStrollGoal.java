@@ -46,6 +46,10 @@ public class RibbitStrollGoal extends RandomStrollGoal {
             return false;
         }
 
+        if (this.ribbit.isShelterNight() && !this.ribbit.canUpdateNightShelterNavigationNow()) {
+            return false;
+        }
+
         this.ribbit.clearAutomaticBedHomeIfTooFar();
 
         if (this.ribbit.isShelterNight() && this.ribbit.hasUsableHomePosition()) {
@@ -59,6 +63,7 @@ public class RibbitStrollGoal extends RandomStrollGoal {
     public boolean canContinueToUse() {
         return !this.ribbit.isAutonomousAiPaused()
                 && !this.ribbit.isLocalNightShelterWaitActive()
+                && (!this.ribbit.isShelterNight() || this.ribbit.canUpdateNightShelterNavigationNow())
                 && super.canContinueToUse();
     }
 
