@@ -3814,6 +3814,64 @@
           }
         }
       },
+      "resting_pride_holding": {
+        "loop": true,
+        "animation_length": 2,
+        "bones": {
+          "main": {
+            "position": {
+              "vector": [0, -2, -1.4]
+            }
+          },
+          "body": {
+            "rotation": {
+              "0.0": {
+                "vector": [0, 0, -1]
+              },
+              "1.0": {
+                "vector": [0, 0, 1],
+                "easing": "easeInOutSine"
+              },
+              "2.0": {
+                "vector": [0, 0, -1],
+                "easing": "easeInOutSine"
+              }
+            }
+          },
+          "left_arm": {
+            "rotation": {
+              "vector": [-96, 68, 31]
+            },
+            "position": {
+              "vector": [-0.5, 0.3, -4]
+            }
+          },
+          "right_arm": {
+            "rotation": {
+              "vector": [-96, -68, -31]
+            },
+            "position": {
+              "vector": [0.5, 0.3, -4]
+            }
+          },
+          "right_leg": {
+            "rotation": {
+              "vector": [-90, 12.5, 5]
+            },
+            "position": {
+              "vector": [0, 0.7, -3]
+            }
+          },
+          "left_leg": {
+            "rotation": {
+              "vector": [-90, -12.5, -5]
+            },
+            "position": {
+              "vector": [0, 0.7, -3]
+            }
+          }
+        }
+      },
       "resting_fisherman": {
         "loop": true,
         "animation_length": 2,

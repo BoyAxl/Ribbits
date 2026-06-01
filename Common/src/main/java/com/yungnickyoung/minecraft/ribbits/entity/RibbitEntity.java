@@ -165,6 +165,7 @@ public class RibbitEntity extends AgeableMob implements
     private static final RawAnimation FISH_HOLDING = RawAnimation.begin().thenPlay("fishing_holding");
     private static final RawAnimation REST = RawAnimation.begin().thenPlay("resting");
     private static final RawAnimation REST_HOLDING = RawAnimation.begin().thenPlay("resting_holding");
+    private static final RawAnimation REST_PRIDE_HOLDING = RawAnimation.begin().thenPlay("resting_pride_holding");
     private static final RawAnimation REST_FISHERMAN = RawAnimation.begin().thenPlay("resting_fisherman");
     private static final RawAnimation REST_FISHERMAN_HOLDING = RawAnimation.begin().thenPlay("resting_fisherman_holding");
     private static final RawAnimation WATER_CROPS = RawAnimation.begin().thenPlay("water_crops");
@@ -3384,11 +3385,17 @@ public class RibbitEntity extends AgeableMob implements
     }
 
     private RawAnimation getRestAnimation() {
+        boolean isRaining = this.isInRain();
+
         if (this.getRibbitData().getProfession().equals(RibbitProfessionModule.FISHERMAN)) {
-            return this.isInRain() ? REST_FISHERMAN_HOLDING : REST_FISHERMAN;
+            return isRaining ? REST_FISHERMAN_HOLDING : REST_FISHERMAN;
         }
 
-        return this.isInRain() ? REST_HOLDING : REST;
+        if (!isRaining && this.isPrideRibbit()) {
+            return REST_PRIDE_HOLDING;
+        }
+
+        return isRaining ? REST_HOLDING : REST;
     }
 
     private RawAnimation getWalkAnimation() {
