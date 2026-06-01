@@ -7,6 +7,7 @@ import net.minecraft.client.particle.SingleQuadParticle;
 import net.minecraft.client.particle.SpriteSet;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.particles.SimpleParticleType;
+import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.util.RandomSource;
 
 public class RibbitSpellParticle extends SingleQuadParticle {
@@ -33,6 +34,11 @@ public class RibbitSpellParticle extends SingleQuadParticle {
     @Override
     protected Layer getLayer() {
         return Layer.TRANSLUCENT;
+    }
+
+    @Override
+    public int getLightCoords(float partialTick) {
+        return LightCoordsUtil.FULL_BRIGHT;
     }
 
     public static class Factory implements ParticleProvider<SimpleParticleType> {
