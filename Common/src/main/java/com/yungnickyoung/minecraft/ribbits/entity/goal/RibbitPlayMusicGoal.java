@@ -64,6 +64,10 @@ public class RibbitPlayMusicGoal extends Goal {
             return false;
         }
 
+        if (RibbitPrideParadeGoal.hasActiveParade(this.ribbit.level())) {
+            return false;
+        }
+
         if (!this.ribbit.isDayActivityTime()) {
             return false;
         }
@@ -91,6 +95,10 @@ public class RibbitPlayMusicGoal extends Goal {
         }
 
         if (this.resetRequested) {
+            return false;
+        }
+
+        if (RibbitPrideParadeGoal.hasActiveParade(this.ribbit.level())) {
             return false;
         }
 
@@ -148,7 +156,8 @@ public class RibbitPlayMusicGoal extends Goal {
 
     @Override
     public boolean isInterruptable() {
-        return !this.ribbit.isDayActivityTime() || this.resetRequested || this.isMasterTooFar() ||
+        return RibbitPrideParadeGoal.hasActiveParade(this.ribbit.level()) ||
+                !this.ribbit.isDayActivityTime() || this.resetRequested || this.isMasterTooFar() ||
                 (this.ribbit.getLastHurtByMob() != null || this.ribbit.isFreezing() || this.ribbit.isOnFire()) ||
                 this.ribbit.getTicksPlayingMusic() > this.requiredPlayTicks;
     }

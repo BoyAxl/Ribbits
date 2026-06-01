@@ -185,6 +185,7 @@ public class RibbitEntity extends AgeableMob implements
     public static final float WATER_SPEED_MULTIPLIER = 2.0f;
 
     private final RibbitPlayMusicGoal musicGoal = new RibbitPlayMusicGoal(this, 1.0f, 2000, 3000);
+    private final RibbitPrideParadeGoal prideParadeGoal = new RibbitPrideParadeGoal(this);
     private final RibbitWaterCropsGoal waterCropsGoal = new RibbitWaterCropsGoal(this, 16.0d, 1.0f, 1200);
     private final RibbitFishGoal fishGoal = new RibbitFishGoal(this, 16.0d, 1.0f, 600, 1800);
     private final RibbitApplyBuffGoal applyBuffGoal = new RibbitApplyBuffGoal(this, 32.0d, 12000);
@@ -212,6 +213,7 @@ public class RibbitEntity extends AgeableMob implements
     private int ticksPlayingMusic;
 
     private BlockPos homePosition;
+    private BlockPos dayActivityHomePosition;
     private BlockPos pendingBedHomePosition;
     private BlockPos pendingBedHomeApproachPosition;
     private BlockPos activeBedHomeApproachPosition;
@@ -293,7 +295,7 @@ public class RibbitEntity extends AgeableMob implements
         this.goalSelector.addGoal(2, new RibbitPanicGoal(this, 1.5D));
         this.goalSelector.addGoal(3, new RibbitStopAndStareAtFrogGoal(this, 4.0F));
         this.goalSelector.addGoal(4, new RibbitLookAtPlayerGoal(this, Player.class, 8.0F));
-        this.goalSelector.addGoal(5, new RibbitStrollGoal(this, 1.0D, 16));
+        this.goalSelector.addGoal(5, new RibbitStrollGoal(this, 1.0D, 10));
     }
 
     @Override
@@ -385,6 +387,9 @@ public class RibbitEntity extends AgeableMob implements
         Optional<Integer> homeX = valueInput.getInt("HomePosX");
         Optional<Integer> homeY = valueInput.getInt("HomePosY");
         Optional<Integer> homeZ = valueInput.getInt("HomePosZ");
+        Optional<Integer> dayHomeX = valueInput.getInt("DayHomePosX");
+        Optional<Integer> dayHomeY = valueInput.getInt("DayHomePosY");
+        Optional<Integer> dayHomeZ = valueInput.getInt("DayHomePosZ");
         boolean homeSetByPlayer = valueInput.getBooleanOr("HomePosSetByPlayer", false);
         boolean automaticBedHome = valueInput.getBooleanOr("HomePosIsAutomaticBed", false);
 
@@ -395,6 +400,12 @@ public class RibbitEntity extends AgeableMob implements
             } else if (automaticBedHome) {
                 this.setHomePosition(savedHome, false, false, true);
             }
+        }
+
+        if (dayHomeX.isPresent() && dayHomeY.isPresent() && dayHomeZ.isPresent()) {
+            this.setDayActivityHomePosition(new BlockPos(dayHomeX.get(), dayHomeY.get(), dayHomeZ.get()));
+        } else if (this.dayActivityHomePosition == null) {
+            this.setDayActivityHomePosition(this.blockPosition());
         }
 
         this.reassessGoals();
@@ -420,6 +431,12 @@ public class RibbitEntity extends AgeableMob implements
             valueOutput.putInt("HomePosZ", this.homePosition.getZ());
             valueOutput.putBoolean("HomePosSetByPlayer", this.homePositionSetByPlayer);
             valueOutput.putBoolean("HomePosIsAutomaticBed", this.homePositionIsAutomaticBed);
+        }
+
+        if (this.dayActivityHomePosition != null) {
+            valueOutput.putInt("DayHomePosX", this.dayActivityHomePosition.getX());
+            valueOutput.putInt("DayHomePosY", this.dayActivityHomePosition.getY());
+            valueOutput.putInt("DayHomePosZ", this.dayActivityHomePosition.getZ());
         }
     }
 
@@ -454,6 +471,7 @@ public class RibbitEntity extends AgeableMob implements
     public SpawnGroupData finalizeSpawn(ServerLevelAccessor level, DifficultyInstance difficulty,
                                         EntitySpawnReason entitySpawnReason, @Nullable SpawnGroupData groupData) {
         SpawnGroupData data = super.finalizeSpawn(level, difficulty, entitySpawnReason, groupData);
+        this.setDayActivityHomePosition(this.blockPosition());
         this.reassessGoals();
         return data;
     }
@@ -507,6 +525,10 @@ public class RibbitEntity extends AgeableMob implements
         this.clearAutomaticBedHomePathFailures();
         this.unreachableNightShelterWaitRetries.clear();
 
+        if (setByPlayer) {
+            this.setDayActivityHomePosition(homePosition);
+        }
+
         if (showHearts) {
             this.level().broadcastEntityEvent(this, (byte) 12);
         }
@@ -531,6 +553,7 @@ public class RibbitEntity extends AgeableMob implements
         this.fishGoal.resetTarget();
         this.waterCropsGoal.resetTarget();
         this.musicGoal.resetTarget(blockBandRejoin);
+        this.prideParadeGoal.resetTarget();
         this.getNavigation().stop();
     }
 
@@ -1473,7 +1496,19 @@ public class RibbitEntity extends AgeableMob implements
             return this.getHomePosition();
         }
 
-        return this.blockPosition();
+        return this.getFallbackDayActivityHomePosition();
+    }
+
+    private void setDayActivityHomePosition(BlockPos pos) {
+        this.dayActivityHomePosition = pos.immutable();
+    }
+
+    private BlockPos getFallbackDayActivityHomePosition() {
+        if (this.dayActivityHomePosition == null) {
+            this.setDayActivityHomePosition(this.blockPosition());
+        }
+
+        return this.dayActivityHomePosition;
     }
 
     public boolean isShelterNight() {
@@ -2988,9 +3023,11 @@ public class RibbitEntity extends AgeableMob implements
         }
 
         this.goalSelector.removeGoal(this.musicGoal);
+        this.goalSelector.removeGoal(this.prideParadeGoal);
         this.goalSelector.removeGoal(this.waterCropsGoal);
         this.goalSelector.removeGoal(this.fishGoal);
         this.goalSelector.removeGoal(this.applyBuffGoal);
+        this.goalSelector.addGoal(5, this.prideParadeGoal);
 
         if (this.getRibbitData().getProfession().equals(RibbitProfessionModule.NITWIT)) {
             this.goalSelector.addGoal(6, this.musicGoal);
@@ -3244,6 +3281,8 @@ public class RibbitEntity extends AgeableMob implements
 
     @Override
     public void remove(RemovalReason reason) {
+        RibbitPrideParadeGoal.stopParadeFor(this);
+
         if (this.isMasterRibbit()) {
             findNewMasterRibbit();
         } else if (this.isPlayingInstrument && this.getMasterRibbit() != null) {
