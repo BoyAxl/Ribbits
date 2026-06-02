@@ -32,12 +32,12 @@ public class RibbitPrideParadeGoal extends Goal {
     private static final int LEADER_LATERAL_WAYPOINT_ATTEMPTS = 12;
     private static final int PARADE_WAYPOINT_MIN_DISTANCE = 5;
     private static final int PARADE_WAYPOINT_MAX_DISTANCE = 8;
-    private static final int PARADE_MAX_ANCHOR_DISTANCE = 12;
+    private static final int PARADE_MAX_ANCHOR_DISTANCE = 16;
     private static final int PARADE_MAX_FOLLOWERS = 10;
     private static final int PARADE_GATHER_MAX_TICKS = 20 * 60 * 2;
     private static final int PARADE_FAST_START_FOLLOWERS = 5;
     private static final int PARADE_MIN_GATHERED_FOLLOWERS = 2;
-    private static final int PARADE_MAX_TICKS = 20 * 60 * 6;
+    private static final int PARADE_MAX_TICKS = 20 * 60 * 5;
     private static final int PARADE_SUCCESS_COOLDOWN_TICKS = 20 * 60 * 2;
     private static final int PARADE_FAILED_PATH_COOLDOWN_TICKS = 20 * 30;
     private static final int LEADER_WAYPOINT_FAILURE_LIMIT = 3;
@@ -56,9 +56,11 @@ public class RibbitPrideParadeGoal extends Goal {
     private static final double FOLLOWER_MAX_REMAIN_FORMATION_DISTANCE = 3.0D;
     private static final double FOLLOWER_FULL_CATCH_UP_GAP = 3.0D;
     private static final double TARGET_REACHED_DISTANCE = 1.0D;
+    private static final double LEADER_WAYPOINT_PROGRESS_DISTANCE_SQR = 0.25D;
     private static final double FOLLOWER_JOIN_PROGRESS_DISTANCE_SQR = 0.25D;
     private static final double LEADER_FORWARD_ARC_RADIANS = Math.PI / 2.0D;
     private static final double LEADER_LATERAL_ARC_RADIANS = Math.PI / 8.0D;
+    private static final int LEADER_WAYPOINT_STUCK_TICKS = 200;
     private static final int FOLLOWER_JOIN_STUCK_TICKS = 200;
 
     private final RibbitEntity ribbit;
@@ -296,6 +298,26 @@ public class RibbitPrideParadeGoal extends Goal {
             if (nextRoute == null) {
                 if (this.activeSession.recordLeaderWaypointFailure()) {
                     this.closeActiveSession("no_forward_waypoint");
+                    return;
+                }
+
+                this.ribbit.getNavigation().stop();
+                this.resetPathRecalculationDelay();
+                return;
+            }
+
+            this.activeSession.clearLeaderWaypointFailures();
+            this.activeSession.setTarget(nextRoute.target(), this.ribbit.blockPosition());
+            this.ribbit.getNavigation().moveTo(nextRoute.path(), this.getWaterAdjustedSpeed(LEADER_SPEED));
+            this.resetPathRecalculationDelay();
+            return;
+        }
+
+        if (this.activeSession.isLeaderWaypointProgressStalled(this.ribbit.tickCount)) {
+            Route nextRoute = this.findNextLeaderWaypointRoute();
+            if (nextRoute == null) {
+                if (this.activeSession.recordLeaderWaypointFailure()) {
+                    this.closeActiveSession("leader_stuck_no_waypoint");
                     return;
                 }
 
@@ -784,7 +806,7 @@ public class RibbitPrideParadeGoal extends Goal {
         if ("duration_completed".equals(reason) || "no_forward_waypoint".equals(reason)) {
             return PARADE_SUCCESS_COOLDOWN_TICKS;
         }
-        if ("path_failed_no_waypoint".equals(reason)) {
+        if ("path_failed_no_waypoint".equals(reason) || "leader_stuck_no_waypoint".equals(reason)) {
             return PARADE_FAILED_PATH_COOLDOWN_TICKS;
         }
 
@@ -804,10 +826,14 @@ public class RibbitPrideParadeGoal extends Goal {
         private final Set<RibbitEntity> formedMembers = new HashSet<>();
         private final Set<RibbitEntity> releasedNoProgressMembers = new HashSet<>();
         private final Map<RibbitEntity, JoiningProgress> joiningProgress = new HashMap<>();
+        private final WaypointProgress leaderWaypointProgress = new WaypointProgress();
         private Vec3 travelDirection = new Vec3(1.0D, 0.0D, 0.0D);
         private boolean startedWalking;
         private int expiresAtTick;
         private int leaderWaypointFailures;
+        @Nullable
+        private RibbitEntity cachedNextJoinCandidate;
+        private long cachedNextJoinCandidateGameTime = Long.MIN_VALUE;
 
         private PrideParadeSession(RibbitEntity leader, @Nullable BlockPos target) {
             this.leader = leader;
@@ -875,6 +901,7 @@ public class RibbitPrideParadeGoal extends Goal {
             this.startedWalking = true;
             this.expiresAtTick = expiresAtTick;
             this.clearLeaderWaypointFailures();
+            this.resetLeaderWaypointProgress();
         }
 
         private void setTarget(BlockPos target, BlockPos from) {
@@ -885,6 +912,10 @@ public class RibbitPrideParadeGoal extends Goal {
             if (horizontalLength > 1.0E-4D) {
                 this.travelDirection = new Vec3(direction.x / horizontalLength, 0.0D, direction.z / horizontalLength);
             }
+            this.leaderWaypointProgress.reset(
+                    target,
+                    this.leader.distanceToSqr(Vec3.atCenterOf(target)),
+                    this.leader.tickCount);
         }
 
         private boolean recordLeaderWaypointFailure() {
@@ -894,6 +925,28 @@ public class RibbitPrideParadeGoal extends Goal {
 
         private void clearLeaderWaypointFailures() {
             this.leaderWaypointFailures = 0;
+        }
+
+        private void resetLeaderWaypointProgress() {
+            if (this.target == null || this.leader == null) {
+                return;
+            }
+
+            this.leaderWaypointProgress.reset(
+                    this.target,
+                    this.leader.distanceToSqr(Vec3.atCenterOf(this.target)),
+                    this.leader.tickCount);
+        }
+
+        private boolean isLeaderWaypointProgressStalled(int tickCount) {
+            if (this.target == null || this.leader == null) {
+                return false;
+            }
+
+            return this.leaderWaypointProgress.isStalled(
+                    this.target,
+                    this.leader.distanceToSqr(Vec3.atCenterOf(this.target)),
+                    tickCount);
         }
 
         private boolean shouldStartWalking() {
@@ -930,6 +983,7 @@ public class RibbitPrideParadeGoal extends Goal {
 
         private void keepOnlyGatheredFollowersForWalking() {
             double maxDistanceSqr = GATHERING_STOP_DISTANCE * GATHERING_STOP_DISTANCE;
+            boolean changed = false;
             Iterator<RibbitEntity> iterator = this.members.iterator();
             while (iterator.hasNext()) {
                 RibbitEntity member = iterator.next();
@@ -941,15 +995,23 @@ public class RibbitPrideParadeGoal extends Goal {
                 iterator.remove();
                 this.formedMembers.remove(member);
                 this.joiningProgress.remove(member);
+                changed = true;
+            }
+            if (changed) {
+                this.invalidateNextJoinCandidateCache();
             }
         }
 
         private void clearGatheringCandidates() {
+            boolean changed = !this.gatheringCandidates.isEmpty();
             this.gatheringCandidates.forEach(candidate -> {
                 candidate.getNavigation().stop();
                 this.joiningProgress.remove(candidate);
             });
             this.gatheringCandidates.clear();
+            if (changed) {
+                this.invalidateNextJoinCandidateCache();
+            }
         }
 
         private boolean canAcceptNewFollower() {
@@ -981,6 +1043,11 @@ public class RibbitPrideParadeGoal extends Goal {
 
         @Nullable
         private RibbitEntity getNextJoinCandidate() {
+            long gameTime = this.leader.level().getGameTime();
+            if (this.cachedNextJoinCandidateGameTime == gameTime) {
+                return this.cachedNextJoinCandidate;
+            }
+
             RibbitEntity joinAnchor = this.getNextJoinAnchor();
             RibbitEntity closest = null;
             double closestDistanceSqr = Double.MAX_VALUE;
@@ -1004,7 +1071,14 @@ public class RibbitPrideParadeGoal extends Goal {
                 }
             }
 
+            this.cachedNextJoinCandidate = closest;
+            this.cachedNextJoinCandidateGameTime = gameTime;
             return closest;
+        }
+
+        private void invalidateNextJoinCandidateCache() {
+            this.cachedNextJoinCandidate = null;
+            this.cachedNextJoinCandidateGameTime = Long.MIN_VALUE;
         }
 
         private RibbitEntity getNextJoinAnchor() {
@@ -1038,6 +1112,7 @@ public class RibbitPrideParadeGoal extends Goal {
                 ribbit.setPlayingInstrument(false);
                 ribbit.setInstrument(RibbitInstrumentModule.NONE);
                 this.members.add(ribbit);
+                this.invalidateNextJoinCandidateCache();
             }
         }
 
@@ -1052,6 +1127,7 @@ public class RibbitPrideParadeGoal extends Goal {
             ribbit.setPlayingInstrument(false);
             ribbit.setInstrument(RibbitInstrumentModule.NONE);
             this.gatheringCandidates.add(ribbit);
+            this.invalidateNextJoinCandidateCache();
         }
 
         private void promoteGatheringCandidate(RibbitEntity ribbit) {
@@ -1063,13 +1139,17 @@ public class RibbitPrideParadeGoal extends Goal {
 
             this.joiningProgress.remove(ribbit);
             this.members.add(ribbit);
+            this.invalidateNextJoinCandidateCache();
         }
 
         private void remove(RibbitEntity ribbit) {
-            this.members.remove(ribbit);
-            this.gatheringCandidates.remove(ribbit);
-            this.formedMembers.remove(ribbit);
-            this.joiningProgress.remove(ribbit);
+            boolean changed = this.members.remove(ribbit);
+            changed |= this.gatheringCandidates.remove(ribbit);
+            changed |= this.formedMembers.remove(ribbit);
+            changed |= this.joiningProgress.remove(ribbit) != null;
+            if (changed) {
+                this.invalidateNextJoinCandidateCache();
+            }
         }
 
         @Nullable
@@ -1118,6 +1198,7 @@ public class RibbitPrideParadeGoal extends Goal {
 
             this.formedMembers.add(ribbit);
             this.joiningProgress.remove(ribbit);
+            this.invalidateNextJoinCandidateCache();
         }
 
         private boolean wasReleasedForNoProgress(RibbitEntity ribbit) {
@@ -1152,10 +1233,12 @@ public class RibbitPrideParadeGoal extends Goal {
             this.formedMembers.remove(ribbit);
             this.joiningProgress.remove(ribbit);
             this.releasedNoProgressMembers.add(ribbit);
+            this.invalidateNextJoinCandidateCache();
             return true;
         }
 
         private void prune() {
+            boolean changed = false;
             Iterator<RibbitEntity> iterator = this.members.iterator();
             while (iterator.hasNext()) {
                 RibbitEntity member = iterator.next();
@@ -1163,22 +1246,27 @@ public class RibbitPrideParadeGoal extends Goal {
                     iterator.remove();
                     this.formedMembers.remove(member);
                     this.joiningProgress.remove(member);
+                    changed = true;
                 }
             }
 
-            this.formedMembers.removeIf(member -> !this.members.contains(member));
+            changed |= this.formedMembers.removeIf(member -> !this.members.contains(member));
             Iterator<RibbitEntity> candidateIterator = this.gatheringCandidates.iterator();
             while (candidateIterator.hasNext()) {
                 RibbitEntity candidate = candidateIterator.next();
                 if (!isValidMember(candidate)) {
                     candidateIterator.remove();
                     this.joiningProgress.remove(candidate);
+                    changed = true;
                 }
             }
 
             this.joiningProgress.keySet().removeIf(member -> !this.members.contains(member)
                     && !this.gatheringCandidates.contains(member));
-            this.releasedNoProgressMembers.removeIf(member -> !isValidMember(member));
+            changed |= this.releasedNoProgressMembers.removeIf(member -> !isValidMember(member));
+            if (changed) {
+                this.invalidateNextJoinCandidateCache();
+            }
         }
 
         private static boolean isValidMember(@Nullable RibbitEntity member) {
@@ -1204,6 +1292,41 @@ public class RibbitPrideParadeGoal extends Goal {
                 this.target = target;
                 this.bestDistanceSqr = distanceSqr;
                 this.ticksWithoutProgress = 0;
+            }
+        }
+
+        private static class WaypointProgress {
+            @Nullable
+            private BlockPos target;
+            private double bestDistanceSqr = Double.MAX_VALUE;
+            private int ticksWithoutProgress;
+            private int lastCheckedTick;
+
+            private void reset(BlockPos target, double distanceSqr, int tickCount) {
+                this.target = target.immutable();
+                this.bestDistanceSqr = distanceSqr;
+                this.ticksWithoutProgress = 0;
+                this.lastCheckedTick = tickCount;
+            }
+
+            private boolean isStalled(BlockPos target, double distanceSqr, int tickCount) {
+                if (!target.equals(this.target)) {
+                    this.reset(target, distanceSqr, tickCount);
+                    return false;
+                }
+
+                int elapsedTicks = tickCount - this.lastCheckedTick;
+                this.lastCheckedTick = tickCount;
+                if (distanceSqr < this.bestDistanceSqr - LEADER_WAYPOINT_PROGRESS_DISTANCE_SQR) {
+                    this.bestDistanceSqr = distanceSqr;
+                    this.ticksWithoutProgress = 0;
+                    return false;
+                }
+
+                if (elapsedTicks > 0) {
+                    this.ticksWithoutProgress += elapsedTicks;
+                }
+                return this.ticksWithoutProgress >= LEADER_WAYPOINT_STUCK_TICKS;
             }
         }
     }
