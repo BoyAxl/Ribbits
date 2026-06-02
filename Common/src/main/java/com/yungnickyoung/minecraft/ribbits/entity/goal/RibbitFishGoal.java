@@ -14,7 +14,9 @@ import java.util.Optional;
 
 public class RibbitFishGoal extends Goal {
     private static final double FISHING_SPOT_REACHED_DISTANCE = 0.18D;
+    private static final double FISHING_SPOT_REACHED_DISTANCE_SQR = FISHING_SPOT_REACHED_DISTANCE * FISHING_SPOT_REACHED_DISTANCE;
     private static final double CLOSE_APPROACH_DISTANCE = 1.5D;
+    private static final double CLOSE_APPROACH_DISTANCE_SQR = CLOSE_APPROACH_DISTANCE * CLOSE_APPROACH_DISTANCE;
     private static final double MIN_APPROACH_PROGRESS_DISTANCE_SQR = 0.04D;
     private static final int MAX_APPROACH_TICKS_WITHOUT_PROGRESS = 120;
     private static final int NAVIGATION_DONE_APPROACH_GRACE_TICKS = 40;
@@ -31,6 +33,7 @@ public class RibbitFishGoal extends Goal {
     private int ticksWithoutApproachProgress;
     private int nextFishingSpotAttemptTick;
     private double bestApproachDistanceSqr;
+    private boolean navigationStoppedAtFishingSpot;
     private BlockPos waterPos;
     private BlockPos dryBlockPos;
     private Vec3 dryPos;
@@ -42,7 +45,7 @@ public class RibbitFishGoal extends Goal {
         this.minRequiredFishTicks = minRequiredFishTicks;
         this.maxRequiredFishTicks = maxRequiredFishTicks;
 
-        this.setFlags(EnumSet.of(Flag.MOVE));
+        this.setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
     }
 
     @Override
@@ -50,6 +53,7 @@ public class RibbitFishGoal extends Goal {
         this.requiredFishTicks = this.ribbit.getRandom().nextInt(this.minRequiredFishTicks, this.maxRequiredFishTicks);
         this.ticksFishing = 0;
         this.ticksWithoutApproachProgress = 0;
+        this.navigationStoppedAtFishingSpot = false;
         this.bestApproachDistanceSqr = this.ribbit.distanceToSqr(this.dryPos);
 
         float waterModifier = this.ribbit.isInWater() ? RibbitEntity.WATER_SPEED_MULTIPLIER : 1.0f;
@@ -66,6 +70,7 @@ public class RibbitFishGoal extends Goal {
         this.dryBlockPos = null;
         this.dryPos = null;
         this.ticksFishing = 0;
+        this.navigationStoppedAtFishingSpot = false;
 
         this.ribbit.setFishing(false);
     }
@@ -175,7 +180,7 @@ public class RibbitFishGoal extends Goal {
         }
 
         return this.ticksFishing < this.requiredFishTicks
-                && (this.ribbit.distanceToSqr(this.dryPos) >= FISHING_SPOT_REACHED_DISTANCE * FISHING_SPOT_REACHED_DISTANCE || this.hasNearbyWater());
+                && (this.ribbit.distanceToSqr(this.dryPos) >= FISHING_SPOT_REACHED_DISTANCE_SQR || this.hasNearbyWater());
     }
 
     private boolean hasNearbyWater() {
@@ -209,11 +214,13 @@ public class RibbitFishGoal extends Goal {
             this.ticksFishing++;
             this.ribbit.setFishing(true);
             this.holdFishingPose();
-        } else if (this.ribbit.distanceToSqr(this.dryPos) < CLOSE_APPROACH_DISTANCE * CLOSE_APPROACH_DISTANCE) {
+        } else if (this.ribbit.distanceToSqr(this.dryPos) < CLOSE_APPROACH_DISTANCE_SQR) {
             this.ribbit.setFishing(false);
+            this.navigationStoppedAtFishingSpot = false;
             this.ribbit.getMoveControl().setWantedPosition(this.dryPos.x(), this.dryPos.y(), this.dryPos.z(), this.speedModifier * waterModifier);
         } else {
             this.ribbit.setFishing(false);
+            this.navigationStoppedAtFishingSpot = false;
             this.ribbit.getNavigation().moveTo(this.dryPos.x(), this.dryPos.y(), this.dryPos.z(), this.speedModifier * waterModifier);
         }
 
@@ -221,21 +228,15 @@ public class RibbitFishGoal extends Goal {
     }
 
     private boolean isAtFishingSpot() {
-        return this.ribbit.distanceToSqr(this.dryPos) <= FISHING_SPOT_REACHED_DISTANCE * FISHING_SPOT_REACHED_DISTANCE;
+        return this.ribbit.distanceToSqr(this.dryPos) <= FISHING_SPOT_REACHED_DISTANCE_SQR;
     }
 
     private void holdFishingPose() {
-        this.ribbit.getNavigation().stop();
-        this.ribbit.setDeltaMovement(Vec3.ZERO);
-        this.ribbit.setPos(this.dryPos.x(), this.dryPos.y(), this.dryPos.z());
+        if (!this.navigationStoppedAtFishingSpot) {
+            this.ribbit.getNavigation().stop();
+            this.navigationStoppedAtFishingSpot = true;
+        }
 
-        double dx = this.waterPos.getX() + 0.5D - this.ribbit.getX();
-        double dz = this.waterPos.getZ() + 0.5D - this.ribbit.getZ();
-        float yaw = (float) (Mth.atan2(dz, dx) * (180.0F / (float) Math.PI)) - 90.0F;
-        this.ribbit.setYRot(yaw);
-        this.ribbit.yBodyRot = yaw;
-        this.ribbit.yHeadRot = yaw;
-        this.ribbit.setXRot(0.0F);
         this.ribbit.getLookControl().setLookAt(this.waterPos.getX() + 0.5D, this.ribbit.getEyeY(), this.waterPos.getZ() + 0.5D);
     }
 
@@ -254,6 +255,7 @@ public class RibbitFishGoal extends Goal {
         this.dryBlockPos = standingPos.immutable();
         this.dryPos = Vec3.atBottomCenterOf(this.dryBlockPos.above());
         this.ticksWithoutApproachProgress = 0;
+        this.navigationStoppedAtFishingSpot = false;
         this.bestApproachDistanceSqr = this.ribbit.distanceToSqr(this.dryPos);
     }
 
@@ -296,7 +298,7 @@ public class RibbitFishGoal extends Goal {
         }
 
         return !this.ribbit.getNavigation().isDone()
-                || distanceSqr < CLOSE_APPROACH_DISTANCE * CLOSE_APPROACH_DISTANCE
+                || distanceSqr < CLOSE_APPROACH_DISTANCE_SQR
                 || this.ticksWithoutApproachProgress < NAVIGATION_DONE_APPROACH_GRACE_TICKS;
     }
 
