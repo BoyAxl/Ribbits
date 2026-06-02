@@ -39,6 +39,8 @@ public class RibbitPrideParadeGoal extends Goal {
     private static final int PARADE_MIN_GATHERED_FOLLOWERS = 2;
     private static final int PARADE_MAX_TICKS = 20 * 60 * 6;
     private static final int PARADE_SUCCESS_COOLDOWN_TICKS = 20 * 60 * 2;
+    private static final int PARADE_FAILED_PATH_COOLDOWN_TICKS = 20 * 30;
+    private static final int LEADER_WAYPOINT_FAILURE_LIMIT = 3;
     private static final int PATH_RECALCULATION_MIN_TICKS = 8;
     private static final int PATH_RECALCULATION_JITTER_TICKS = 8;
     private static final double START_CHANCE = 0.6D;
@@ -57,7 +59,7 @@ public class RibbitPrideParadeGoal extends Goal {
     private static final double FOLLOWER_JOIN_PROGRESS_DISTANCE_SQR = 0.25D;
     private static final double LEADER_FORWARD_ARC_RADIANS = Math.PI / 2.0D;
     private static final double LEADER_LATERAL_ARC_RADIANS = Math.PI / 8.0D;
-    private static final int FOLLOWER_JOIN_STUCK_TICKS = 120;
+    private static final int FOLLOWER_JOIN_STUCK_TICKS = 200;
 
     private final RibbitEntity ribbit;
 
@@ -145,7 +147,7 @@ public class RibbitPrideParadeGoal extends Goal {
         }
 
         if (session.leader == this.ribbit) {
-            return session.isValid();
+            return session.getInvalidReason() == null;
         }
 
         return this.getRemainRejectionReason(session) == null;
@@ -215,6 +217,15 @@ public class RibbitPrideParadeGoal extends Goal {
         this.ticksUntilNextPathRecalculation = 0;
     }
 
+    private void closeActiveSession(String reason) {
+        if (this.activeSession == null) {
+            return;
+        }
+
+        clearSession(this.ribbit.level(), this.activeSession, reason);
+        this.activeSession = null;
+    }
+
     @Override
     public boolean requiresUpdateEveryTick() {
         return true;
@@ -234,7 +245,7 @@ public class RibbitPrideParadeGoal extends Goal {
         this.activeSession.prune();
         String invalidReason = this.activeSession.getInvalidReason();
         if (invalidReason != null) {
-            clearSession(this.ribbit.level(), this.activeSession, invalidReason);
+            this.closeActiveSession(invalidReason);
             return;
         }
 
@@ -250,10 +261,10 @@ public class RibbitPrideParadeGoal extends Goal {
             return;
         }
 
-        this.ribbit.getNavigation().setSpeedModifier(LEADER_SPEED);
+        this.ribbit.getNavigation().setSpeedModifier(this.getWaterAdjustedSpeed(LEADER_SPEED));
         if (!this.activeSession.hasStartedWalking()) {
             if (this.activeSession.shouldGiveUpGathering()) {
-                clearSession(this.ribbit.level(), this.activeSession, "not_enough_gathered");
+                this.closeActiveSession("not_enough_gathered");
                 return;
             }
 
@@ -266,7 +277,7 @@ public class RibbitPrideParadeGoal extends Goal {
             this.activeSession.clearGatheringCandidates();
             int gatheredFollowers = this.activeSession.countGatheredFollowers();
             if (gatheredFollowers < PARADE_MIN_GATHERED_FOLLOWERS) {
-                clearSession(this.ribbit.level(), this.activeSession, "not_enough_gathered_after_consolidation");
+                this.closeActiveSession("not_enough_gathered_after_consolidation");
                 return;
             }
 
@@ -275,39 +286,54 @@ public class RibbitPrideParadeGoal extends Goal {
             return;
         }
 
-        if (this.ribbit.distanceToSqr(Vec3.atCenterOf(this.activeSession.target)) <= TARGET_REACHED_DISTANCE * TARGET_REACHED_DISTANCE) {
-            Route nextRoute = this.findNextLeaderWaypointRoute();
-            if (nextRoute == null) {
-                clearSession(this.ribbit.level(), this.activeSession, "no_forward_waypoint");
-                return;
-            }
-
-            this.activeSession.setTarget(nextRoute.target(), this.ribbit.blockPosition());
-            this.ribbit.getNavigation().moveTo(nextRoute.path(), LEADER_SPEED);
-            this.resetPathRecalculationDelay();
+        this.ticksUntilNextPathRecalculation = Math.max(this.ticksUntilNextPathRecalculation - 1, 0);
+        if (this.ticksUntilNextPathRecalculation > 0) {
             return;
         }
 
-        this.ticksUntilNextPathRecalculation = Math.max(this.ticksUntilNextPathRecalculation - 1, 0);
-        if (this.ticksUntilNextPathRecalculation > 0 && !this.ribbit.getNavigation().isDone()) {
+        if (this.ribbit.distanceToSqr(Vec3.atCenterOf(this.activeSession.target)) <= TARGET_REACHED_DISTANCE * TARGET_REACHED_DISTANCE) {
+            Route nextRoute = this.findNextLeaderWaypointRoute();
+            if (nextRoute == null) {
+                if (this.activeSession.recordLeaderWaypointFailure()) {
+                    this.closeActiveSession("no_forward_waypoint");
+                    return;
+                }
+
+                this.ribbit.getNavigation().stop();
+                this.resetPathRecalculationDelay();
+                return;
+            }
+
+            this.activeSession.clearLeaderWaypointFailures();
+            this.activeSession.setTarget(nextRoute.target(), this.ribbit.blockPosition());
+            this.ribbit.getNavigation().moveTo(nextRoute.path(), this.getWaterAdjustedSpeed(LEADER_SPEED));
+            this.resetPathRecalculationDelay();
             return;
         }
 
         Path path = this.ribbit.getNavigation().createPath(this.activeSession.target, 0);
-        if (path == null || !path.canReach() || !this.pathAvoidsWater(path)) {
+        if (path == null || !path.canReach()) {
             Route nextRoute = this.findNextLeaderWaypointRoute();
             if (nextRoute == null) {
-                clearSession(this.ribbit.level(), this.activeSession, "path_failed_no_waypoint");
+                if (this.activeSession.recordLeaderWaypointFailure()) {
+                    this.closeActiveSession("path_failed_no_waypoint");
+                    return;
+                }
+
+                this.ribbit.getNavigation().stop();
+                this.resetPathRecalculationDelay();
                 return;
             }
 
+            this.activeSession.clearLeaderWaypointFailures();
             this.activeSession.setTarget(nextRoute.target(), this.ribbit.blockPosition());
-            this.ribbit.getNavigation().moveTo(nextRoute.path(), LEADER_SPEED);
+            this.ribbit.getNavigation().moveTo(nextRoute.path(), this.getWaterAdjustedSpeed(LEADER_SPEED));
             this.resetPathRecalculationDelay();
             return;
         }
 
-        this.ribbit.getNavigation().moveTo(path, LEADER_SPEED);
+        this.activeSession.clearLeaderWaypointFailures();
+        this.ribbit.getNavigation().moveTo(path, this.getWaterAdjustedSpeed(LEADER_SPEED));
         this.resetPathRecalculationDelay();
     }
 
@@ -352,16 +378,16 @@ public class RibbitPrideParadeGoal extends Goal {
             return;
         }
 
-        double speed = formed ? getFormedFollowerSpeed(distance) : FOLLOWER_CATCH_UP_SPEED;
+        double speed = this.getWaterAdjustedSpeed(formed ? getFormedFollowerSpeed(distance) : FOLLOWER_CATCH_UP_SPEED);
         this.ribbit.getNavigation().setSpeedModifier(speed);
 
         this.ticksUntilNextPathRecalculation = Math.max(this.ticksUntilNextPathRecalculation - 1, 0);
-        if (this.ticksUntilNextPathRecalculation > 0 && !this.ribbit.getNavigation().isDone()) {
+        if (this.ticksUntilNextPathRecalculation > 0) {
             return;
         }
 
         Path path = this.ribbit.getNavigation().createPath(target, 0);
-        if (path == null || !this.pathAvoidsWater(path)) {
+        if (path == null) {
             this.ribbit.getNavigation().stop();
             this.resetPathRecalculationDelay();
             return;
@@ -397,18 +423,18 @@ public class RibbitPrideParadeGoal extends Goal {
         }
 
         this.ticksUntilNextPathRecalculation = Math.max(this.ticksUntilNextPathRecalculation - 1, 0);
-        if (this.ticksUntilNextPathRecalculation > 0 && !this.ribbit.getNavigation().isDone()) {
+        if (this.ticksUntilNextPathRecalculation > 0) {
             return;
         }
 
-        Path path = this.ribbit.getNavigation().createPath(target, 0);
-        if (path == null || !this.pathAvoidsWater(path)) {
+        double speed = this.getWaterAdjustedSpeed(GATHERING_FOLLOWER_SPEED);
+        this.ribbit.getNavigation().setSpeedModifier(speed);
+        if (!this.ribbit.getNavigation().moveTo(target, speed)) {
             this.ribbit.getNavigation().stop();
             this.resetPathRecalculationDelay();
             return;
         }
 
-        this.ribbit.getNavigation().moveTo(path, GATHERING_FOLLOWER_SPEED);
         this.resetPathRecalculationDelay();
     }
 
@@ -418,9 +444,13 @@ public class RibbitPrideParadeGoal extends Goal {
         return FOLLOWER_JOINED_SPEED + (FOLLOWER_CATCH_UP_SPEED - FOLLOWER_JOINED_SPEED) * catchUpFactor;
     }
 
+    private double getWaterAdjustedSpeed(double speed) {
+        return this.ribbit.isInWater() ? speed * RibbitEntity.WATER_SPEED_MULTIPLIER : speed;
+    }
+
     private void moveAlongLeaderPath() {
         if (this.candidateLeaderPath != null) {
-            this.ribbit.getNavigation().moveTo(this.candidateLeaderPath, LEADER_SPEED);
+            this.ribbit.getNavigation().moveTo(this.candidateLeaderPath, this.getWaterAdjustedSpeed(LEADER_SPEED));
             this.resetPathRecalculationDelay();
         }
     }
@@ -438,6 +468,9 @@ public class RibbitPrideParadeGoal extends Goal {
         if (participationBlocker != null) {
             return participationBlocker;
         }
+        if (this.ribbit.isInWater()) {
+            return "leader_in_water";
+        }
         if (!this.ribbit.isStableOutdoorActivityPosition()) {
             return "not_stable_outdoor";
         }
@@ -447,6 +480,10 @@ public class RibbitPrideParadeGoal extends Goal {
 
     private boolean canJoinSession(PrideParadeSession session) {
         return this.getJoinRejectionReason(session) == null;
+    }
+
+    private static boolean isValidParadeParticipantPosition(RibbitEntity ribbit) {
+        return ribbit.isStableOutdoorActivityPosition() || isOpenParadeWater(ribbit, ribbit.blockPosition());
     }
 
     @Nullable
@@ -461,8 +498,8 @@ public class RibbitPrideParadeGoal extends Goal {
             return participationBlocker;
         }
 
-        if (!this.ribbit.isStableOutdoorActivityPosition()) {
-            return "not_stable_outdoor";
+        if (!isValidParadeParticipantPosition(this.ribbit)) {
+            return "not_valid_parade_position";
         }
 
         if (session.isFull()) {
@@ -519,14 +556,6 @@ public class RibbitPrideParadeGoal extends Goal {
         return null;
     }
 
-    private boolean canParticipate() {
-        return canParticipate(this.ribbit);
-    }
-
-    private static boolean canParticipate(RibbitEntity ribbit) {
-        return getParticipationBlocker(ribbit) == null;
-    }
-
     @Nullable
     private static String getParticipationBlocker(RibbitEntity ribbit) {
         if (!ribbit.isDayActivityTime()) {
@@ -534,9 +563,6 @@ public class RibbitPrideParadeGoal extends Goal {
         }
         if (ribbit.isAutonomousAiPaused()) {
             return "autonomous_ai_paused";
-        }
-        if (ribbit.isInWater()) {
-            return "in_water";
         }
         if (ribbit.isInRain()) {
             return "in_rain";
@@ -584,7 +610,7 @@ public class RibbitPrideParadeGoal extends Goal {
             }
 
             Path path = this.ribbit.getNavigation().createPath(target, 0);
-            if (path != null && path.canReach() && this.pathAvoidsWater(path)) {
+            if (path != null && path.canReach()) {
                 return new Route(target, path);
             }
         }
@@ -646,7 +672,7 @@ public class RibbitPrideParadeGoal extends Goal {
         }
 
         Path path = this.ribbit.getNavigation().createPath(target, 0);
-        if (path != null && path.canReach() && this.pathAvoidsWater(path)) {
+        if (path != null && path.canReach()) {
             return new Route(target, path);
         }
 
@@ -678,12 +704,13 @@ public class RibbitPrideParadeGoal extends Goal {
     }
 
     private boolean isValidParadeTarget(BlockPos pos) {
-        return this.ribbit.isStableOutdoorActivityPosition(pos)
-                && this.isWithinParadeAnchorRange(pos)
-                && this.ribbit.level().getBlockState(pos).getCollisionShape(this.ribbit.level(), pos).isEmpty()
-                && this.ribbit.level().getBlockState(pos.above()).getCollisionShape(this.ribbit.level(), pos.above()).isEmpty()
-                && !this.ribbit.level().getFluidState(pos).is(FluidTags.WATER)
-                && !this.ribbit.level().getFluidState(pos.below()).is(FluidTags.WATER);
+        if (!this.isWithinParadeAnchorRange(pos)
+                || !this.hasEmptyCollision(pos)
+                || !this.hasEmptyCollision(pos.above())) {
+            return false;
+        }
+
+        return this.ribbit.isStableOutdoorActivityPosition(pos) || this.isOpenParadeWater(pos);
     }
 
     private boolean isWithinParadeAnchorRange(BlockPos pos) {
@@ -693,16 +720,21 @@ public class RibbitPrideParadeGoal extends Goal {
         return x * x + z * z <= PARADE_MAX_ANCHOR_DISTANCE * PARADE_MAX_ANCHOR_DISTANCE;
     }
 
-    private boolean pathAvoidsWater(Path path) {
-        for (int i = 0; i < path.getNodeCount(); i++) {
-            BlockPos nodePos = path.getNodePos(i);
-            if (this.ribbit.level().getFluidState(nodePos).is(FluidTags.WATER)
-                    || this.ribbit.level().getFluidState(nodePos.below()).is(FluidTags.WATER)) {
-                return false;
-            }
-        }
+    private boolean isOpenParadeWater(BlockPos pos) {
+        return isOpenParadeWater(this.ribbit, pos);
+    }
 
-        return true;
+    private static boolean isOpenParadeWater(RibbitEntity ribbit, BlockPos pos) {
+        return ribbit.level().getFluidState(pos).is(FluidTags.WATER)
+                && hasEmptyCollision(ribbit, pos.above());
+    }
+
+    private boolean hasEmptyCollision(BlockPos pos) {
+        return hasEmptyCollision(this.ribbit, pos);
+    }
+
+    private static boolean hasEmptyCollision(RibbitEntity ribbit, BlockPos pos) {
+        return ribbit.level().getBlockState(pos).getCollisionShape(ribbit.level(), pos).isEmpty();
     }
 
     private void resetPathRecalculationDelay() {
@@ -736,8 +768,9 @@ public class RibbitPrideParadeGoal extends Goal {
             return;
         }
 
-        if ("duration_completed".equals(reason) || "no_forward_waypoint".equals(reason)) {
-            NEXT_PARADE_START_TICKS.put(level, level.getGameTime() + PARADE_SUCCESS_COOLDOWN_TICKS);
+        int cooldownTicks = getCooldownTicksForCloseReason(reason);
+        if (cooldownTicks > 0) {
+            NEXT_PARADE_START_TICKS.put(level, level.getGameTime() + cooldownTicks);
         }
 
         session.members.forEach(member -> member.getNavigation().stop());
@@ -745,6 +778,17 @@ public class RibbitPrideParadeGoal extends Goal {
             session.leader.getNavigation().stop();
         }
         SESSIONS.remove(level);
+    }
+
+    private static int getCooldownTicksForCloseReason(String reason) {
+        if ("duration_completed".equals(reason) || "no_forward_waypoint".equals(reason)) {
+            return PARADE_SUCCESS_COOLDOWN_TICKS;
+        }
+        if ("path_failed_no_waypoint".equals(reason)) {
+            return PARADE_FAILED_PATH_COOLDOWN_TICKS;
+        }
+
+        return 0;
     }
 
     private record Route(BlockPos target, Path path) {
@@ -763,6 +807,7 @@ public class RibbitPrideParadeGoal extends Goal {
         private Vec3 travelDirection = new Vec3(1.0D, 0.0D, 0.0D);
         private boolean startedWalking;
         private int expiresAtTick;
+        private int leaderWaypointFailures;
 
         private PrideParadeSession(RibbitEntity leader, @Nullable BlockPos target) {
             this.leader = leader;
@@ -787,7 +832,7 @@ public class RibbitPrideParadeGoal extends Goal {
             if (this.leader.isAutonomousAiPaused()) {
                 return "autonomous_ai_paused";
             }
-            if (this.leader.isInWater()) {
+            if (!this.startedWalking && this.leader.isInWater()) {
                 return "leader_in_water";
             }
             if (this.leader.isInRain()) {
@@ -829,6 +874,7 @@ public class RibbitPrideParadeGoal extends Goal {
         private void markStartedWalking(int expiresAtTick) {
             this.startedWalking = true;
             this.expiresAtTick = expiresAtTick;
+            this.clearLeaderWaypointFailures();
         }
 
         private void setTarget(BlockPos target, BlockPos from) {
@@ -839,6 +885,15 @@ public class RibbitPrideParadeGoal extends Goal {
             if (horizontalLength > 1.0E-4D) {
                 this.travelDirection = new Vec3(direction.x / horizontalLength, 0.0D, direction.z / horizontalLength);
             }
+        }
+
+        private boolean recordLeaderWaypointFailure() {
+            this.leaderWaypointFailures++;
+            return this.leaderWaypointFailures >= LEADER_WAYPOINT_FAILURE_LIMIT;
+        }
+
+        private void clearLeaderWaypointFailures() {
+            this.leaderWaypointFailures = 0;
         }
 
         private boolean shouldStartWalking() {
@@ -937,7 +992,7 @@ public class RibbitPrideParadeGoal extends Goal {
                         || this.isGatheringCandidate(nearby)
                         || this.releasedNoProgressMembers.contains(nearby)
                         || getParticipationBlocker(nearby) != null
-                        || !nearby.isStableOutdoorActivityPosition()
+                        || !isValidParadeParticipantPosition(nearby)
                         || nearby.distanceToSqr(this.leader) > JOIN_RANGE * JOIN_RANGE) {
                     continue;
                 }
@@ -965,17 +1020,6 @@ public class RibbitPrideParadeGoal extends Goal {
             }
 
             return this.leader;
-        }
-
-        private boolean isCurrentlyInFormation(RibbitEntity member) {
-            RibbitEntity target = this.getFormationTargetFor(member);
-            if (target == null || target.isRemoved() || target.isDeadOrDying()) {
-                return false;
-            }
-
-            double distance = member.distanceTo(target);
-            return distance >= FOLLOWER_MIN_FORMATION_DISTANCE
-                    && distance <= FOLLOWER_MAX_FORMATION_DISTANCE;
         }
 
         private boolean isCurrentlyCloseEnoughForFormation(RibbitEntity member) {
@@ -1123,7 +1167,15 @@ public class RibbitPrideParadeGoal extends Goal {
             }
 
             this.formedMembers.removeIf(member -> !this.members.contains(member));
-            this.gatheringCandidates.removeIf(candidate -> !isValidMember(candidate));
+            Iterator<RibbitEntity> candidateIterator = this.gatheringCandidates.iterator();
+            while (candidateIterator.hasNext()) {
+                RibbitEntity candidate = candidateIterator.next();
+                if (!isValidMember(candidate)) {
+                    candidateIterator.remove();
+                    this.joiningProgress.remove(candidate);
+                }
+            }
+
             this.joiningProgress.keySet().removeIf(member -> !this.members.contains(member)
                     && !this.gatheringCandidates.contains(member));
             this.releasedNoProgressMembers.removeIf(member -> !isValidMember(member));
@@ -1135,7 +1187,6 @@ public class RibbitPrideParadeGoal extends Goal {
                     && !member.isDeadOrDying()
                     && member.isDayActivityTime()
                     && !member.isAutonomousAiPaused()
-                    && !member.isInWater()
                     && !member.isInRain();
         }
 
