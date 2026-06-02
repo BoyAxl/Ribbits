@@ -39,11 +39,11 @@ public class RibbitPrideParadeGoal extends Goal {
     private static final int PARADE_MIN_GATHERED_FOLLOWERS = 2;
     private static final int PARADE_MAX_TICKS = 20 * 60 * 5;
     private static final int PARADE_SUCCESS_COOLDOWN_TICKS = 20 * 60 * 2;
-    private static final int PARADE_FAILED_PATH_COOLDOWN_TICKS = 20 * 30;
+    private static final int PARADE_FAILED_PATH_COOLDOWN_TICKS = 20 * 60;
     private static final int LEADER_WAYPOINT_FAILURE_LIMIT = 3;
     private static final int PATH_RECALCULATION_MIN_TICKS = 8;
     private static final int PATH_RECALCULATION_JITTER_TICKS = 8;
-    private static final double START_CHANCE = 0.6D;
+    private static final double START_CHANCE = 0.5D;
     private static final double JOIN_RANGE = 64.0D;
     private static final double LEADER_SPEED = 0.8D;
     private static final double GATHERING_FOLLOWER_SPEED = 1.5D;

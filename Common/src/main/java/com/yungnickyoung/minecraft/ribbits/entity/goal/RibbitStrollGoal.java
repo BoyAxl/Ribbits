@@ -2,6 +2,7 @@ package com.yungnickyoung.minecraft.ribbits.entity.goal;
 
 import com.yungnickyoung.minecraft.ribbits.entity.RibbitEntity;
 import net.minecraft.core.BlockPos;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.ai.goal.RandomStrollGoal;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
@@ -10,6 +11,7 @@ import java.util.EnumSet;
 
 public class RibbitStrollGoal extends RandomStrollGoal {
     private static final int OUTDOOR_TARGET_ATTEMPTS = 12;
+    private static final int HORIZONTAL_OFFSET_ATTEMPTS = 16;
 
     private final int dayHomeRange;
     private final RibbitEntity ribbit;
@@ -99,13 +101,33 @@ public class RibbitStrollGoal extends RandomStrollGoal {
     }
 
     private Vec3 getRandomDayHomePosition() {
-        BlockPos distanceVariance = new BlockPos(this.mob.getRandom().nextInt(this.dayHomeRange * 2) - this.dayHomeRange,
-                this.mob.getRandom().nextInt(this.dayHomeRange * 2) - this.dayHomeRange,
-                this.mob.getRandom().nextInt(this.dayHomeRange * 2) - this.dayHomeRange);
+        BlockPos horizontalOffset = this.getRandomHorizontalHomeOffset();
+        int yOffset = this.getRandomHomeRangeOffset();
 
         BlockPos dayHomePosition = this.ribbit.getStrollAnchorPosition();
-        return new Vec3(distanceVariance.getX() + dayHomePosition.getX(),
-                distanceVariance.getY() + dayHomePosition.getY(),
-                distanceVariance.getZ() + dayHomePosition.getZ());
+        return new Vec3(horizontalOffset.getX() + dayHomePosition.getX(),
+                yOffset + dayHomePosition.getY(),
+                horizontalOffset.getZ() + dayHomePosition.getZ());
+    }
+
+    private BlockPos getRandomHorizontalHomeOffset() {
+        int maxDistanceSqr = this.dayHomeRange * this.dayHomeRange;
+        for (int attempt = 0; attempt < HORIZONTAL_OFFSET_ATTEMPTS; attempt++) {
+            int xOffset = this.getRandomHomeRangeOffset();
+            int zOffset = this.getRandomHomeRangeOffset();
+            if (xOffset * xOffset + zOffset * zOffset <= maxDistanceSqr) {
+                return new BlockPos(xOffset, 0, zOffset);
+            }
+        }
+
+        RandomSource random = this.mob.getRandom();
+        double angle = random.nextDouble() * Math.PI * 2.0D;
+        int xOffset = (int) (Math.cos(angle) * this.dayHomeRange);
+        int zOffset = (int) (Math.sin(angle) * this.dayHomeRange);
+        return new BlockPos(xOffset, 0, zOffset);
+    }
+
+    private int getRandomHomeRangeOffset() {
+        return this.mob.getRandom().nextInt(this.dayHomeRange * 2 + 1) - this.dayHomeRange;
     }
 }

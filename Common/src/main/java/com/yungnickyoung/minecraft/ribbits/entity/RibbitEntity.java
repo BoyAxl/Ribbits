@@ -295,7 +295,7 @@ public class RibbitEntity extends AgeableMob implements
         this.goalSelector.addGoal(2, new RibbitPanicGoal(this, 1.5D));
         this.goalSelector.addGoal(3, new RibbitStopAndStareAtFrogGoal(this, 4.0F));
         this.goalSelector.addGoal(4, new RibbitLookAtPlayerGoal(this, Player.class, 8.0F));
-        this.goalSelector.addGoal(5, new RibbitStrollGoal(this, 1.0D, 10));
+        this.goalSelector.addGoal(5, new RibbitStrollGoal(this, 1.0D, 12));
     }
 
     @Override
