@@ -59,10 +59,7 @@ repositories {
 dependencies {
     minecraft "com.mojang:minecraft:${mc_version}"
 
-    implementation("org.reflections:reflections:0.10.2")
-    include("org.reflections:reflections:0.10.2")
-    implementation("org.javassist:javassist:3.29.2-GA")
-    include("org.javassist:javassist:3.29.2-GA")
+    implementation "maven.modrinth:yungs-api:${yungsapi_version_fabric}"
 
     implementation "maven.modrinth:geckolib:${geckolib_version_fabric}"
     implementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
@@ -170,6 +167,7 @@ task publishCurseForgeFabric(type: net.darkhax.curseforgegradle.TaskPublishCurse
     mainFile.addRequirement('fabric-api')
     mainFile.addRequirement('cloth-config')
     mainFile.addRequirement('geckolib')
+    mainFile.addRequirement('yungs-api-fabric')
     mainFile.addModLoader('fabric')
     mainFile.displayName = "${mod_full_name} [Fabric] ${releaseVersion} for ${mc_version}"
     compatibleVersions.each { mcVersion ->

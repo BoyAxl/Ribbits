@@ -32,9 +32,7 @@
   },
   "mixins": [
     "ribbits.mixins.json",
-    "ribbits.fabric.mixins.json",
-    "yungsapi.mixins.json",
-    "yungsapi_fabric.mixins.json"
+    "ribbits.fabric.mixins.json"
   ],
   "accessWidener": "ribbits.accesswidener",
   "depends": {
@@ -43,6 +41,7 @@
     "minecraft": "${mc_version_range_fabric}",
     "cloth-config2": ">=${clothconfig_version_fabric}",
     "java": ">=${java_version}",
-    "geckolib": ">=${geckolib_version_fabric}"
+    "geckolib": ">=${geckolib_version_fabric}",
+    "yungsapi": "*"
   }
 }
